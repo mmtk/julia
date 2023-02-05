@@ -326,13 +326,15 @@ extern jl_array_t *jl_all_methods JL_GLOBALLY_ROOTED;
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
 
+void enable_collection(void);
+void disable_collection(void);
 jl_value_t *jl_gc_pool_alloc_noinline(jl_ptls_t ptls, int pool_offset,
                                    int osize);
 jl_value_t *jl_gc_big_alloc_noinline(jl_ptls_t ptls, size_t allocsz);
-#ifdef MMTKHEAP
+#ifdef MMTK_GC
 JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, int pool_offset, int osize, void* ty);
 JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_big(jl_ptls_t ptls, size_t allocsz);
-#endif
+#endif // MMTK_GC
 JL_DLLEXPORT int jl_gc_classify_pools(size_t sz, int *osize) JL_NOTSAFEPOINT;
 extern uv_mutex_t gc_perm_lock;
 void *jl_gc_perm_alloc_nolock(size_t sz, int zero,
@@ -451,37 +453,50 @@ STATIC_INLINE uint8_t JL_CONST_FUNC jl_gc_szclass_align8(unsigned sz) JL_NOTSAFE
 #define GC_MAX_SZCLASS (2032-sizeof(void*))
 static_assert(ARRAY_CACHE_ALIGN_THRESHOLD > GC_MAX_SZCLASS, "");
 
+#ifndef MMTK_GC
 STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
 {
     jl_value_t *v;
     const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
     if (sz <= GC_MAX_SZCLASS) {
-#ifndef MMTKHEAP
         int pool_id = jl_gc_szclass(allocsz);
         jl_gc_pool_t *p = &ptls->heap.norm_pools[pool_id];
         int osize = jl_gc_sizeclasses[pool_id];
         // We call `jl_gc_pool_alloc_noinline` instead of `jl_gc_pool_alloc` to avoid double-counting in
         // the Allocations Profiler. (See https://github.com/JuliaLang/julia/pull/43868 for more details.)
         v = jl_gc_pool_alloc_noinline(ptls, (char*)p - (char*)ptls, osize);
-#else
-        int pool_id = jl_gc_szclass(allocsz);
-        int osize = jl_gc_sizeclasses[pool_id];
-        v = jl_mmtk_gc_alloc_default(ptls, pool_id, osize, ty);
-#endif
     }
     else {
         if (allocsz < sz) // overflow in adding offs, size was "negative"
             jl_throw(jl_memory_exception);
-#ifndef MMTKHEAP
         v = jl_gc_big_alloc_noinline(ptls, allocsz);
-#else
-        v = jl_mmtk_gc_alloc_big(ptls, allocsz);
-#endif
     }
     jl_set_typeof(v, ty);
     maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
     return v;
 }
+
+#else  // MMTK_GC
+
+STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
+{
+    jl_value_t *v;
+    const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
+    if (sz <= GC_MAX_SZCLASS) {
+        int pool_id = jl_gc_szclass(allocsz);
+        int osize = jl_gc_sizeclasses[pool_id];
+        v = jl_mmtk_gc_alloc_default(ptls, pool_id, osize, ty);
+    }
+    else {
+        if (allocsz < sz) // overflow in adding offs, size was "negative"
+            jl_throw(jl_memory_exception);
+        v = jl_mmtk_gc_alloc_big(ptls, allocsz);
+    }
+    jl_set_typeof(v, ty);
+    maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
+    return v;
+}
+#endif // MMTK_GC
 
 /* Programming style note: When using jl_gc_alloc, do not JL_GC_PUSH it into a
  * gc frame, until it has been fully initialized. An uninitialized value in a
@@ -576,23 +591,31 @@ void jl_gc_add_finalizer_(jl_ptls_t ptls, void *v, void *f) JL_NOTSAFEPOINT;
 
 void gc_setmark_buf(jl_ptls_t ptls, void *buf, uint8_t, size_t) JL_NOTSAFEPOINT;
 
+#ifndef MMTK_GC
 STATIC_INLINE void jl_gc_wb_binding(jl_binding_t *bnd, void *val) JL_NOTSAFEPOINT // val isa jl_value_t*
 {
-#ifndef MMTKHEAP
     jl_gc_wb(bnd, val);
-#endif
 }
 
 STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr, size_t minsz) JL_NOTSAFEPOINT // parent isa jl_value_t*
 {
-#ifndef MMTKHEAP
     // if parent is marked and buf is not
     if (__unlikely(jl_astaggedvalue(parent)->bits.gc & 1)) {
         jl_task_t *ct = jl_current_task;
         gc_setmark_buf(ct->ptls, bufptr, 3, minsz);
     }
-#endif
 }
+
+#else  // MMTK_GC
+
+STATIC_INLINE void jl_gc_wb_binding(jl_binding_t *bnd, void *val) JL_NOTSAFEPOINT // val isa jl_value_t*
+{
+}
+
+STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr, size_t minsz) JL_NOTSAFEPOINT // parent isa jl_value_t*
+{
+}
+#endif // MMTK_GC
 
 void jl_gc_debug_print_status(void) JL_NOTSAFEPOINT;
 JL_DLLEXPORT void jl_gc_debug_critical_error(void) JL_NOTSAFEPOINT;

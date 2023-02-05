@@ -1,5 +1,7 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
+#ifndef MMTK_GC
+
 #include "gc.h"
 #ifndef _OS_WINDOWS_
 #  include <sys/resource.h>
@@ -335,3 +337,5 @@ no_decommit:
 #ifdef __cplusplus
 }
 #endif
+
+#endif // !MMTK_GC

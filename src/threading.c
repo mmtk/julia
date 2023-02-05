@@ -345,12 +345,12 @@ jl_ptls_t jl_init_threadtls(int16_t tid)
 #endif
     ptls->system_id = (jl_thread_t)(uintptr_t)uv_thread_self();
     ptls->rngseed = jl_rand();
-    if (tid == 0)
+    if (tid == 0) {
         ptls->disable_gc = 1;
-#ifdef MMTKHEAP
-    if (tid == 0)
+#ifdef MMTK_GC
         disable_collection();
 #endif
+    }
 #ifdef _OS_WINDOWS_
     if (tid == 0) {
         if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),

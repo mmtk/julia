@@ -86,6 +86,9 @@ HAVE_SSP := 0
 WITH_GC_VERIFY := 0
 WITH_GC_DEBUG_ENV := 0
 
+# MMTk GC
+WITH_MMTK ?= 0
+
 # Enable DTrace support
 WITH_DTRACE := 0
 
@@ -707,6 +710,24 @@ endif
 ifeq ($(WITH_GC_DEBUG_ENV), 1)
 JCXXFLAGS += -DGC_DEBUG_ENV
 JCFLAGS += -DGC_DEBUG_ENV
+endif
+
+ifeq ($(WITH_MMTK), 1)
+ifeq (${MMTK_JULIA_DIR},)
+$(error MMTK_JULIA_DIR must be set to use MMTk)
+endif
+JCXXFLAGS += -DMMTK_GC
+JCFLAGS += -DMMTK_GC
+# TODO: make this "debug" as needed
+MMTK_BUILD_TYPE = release
+MMTK_DIR = ${MMTK_JULIA_DIR}/mmtk
+MMTK_API_INC = $(MMTK_DIR)/api
+MMTK_JULIA_INC = ${MMTK_JULIA_DIR}/julia
+MMTK_LIB := -L$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE) -lmmtk_julia
+LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE)/
+else
+MMTK_JULIA_INC :=
+MMTK_LIB :=
 endif
 
 ifeq ($(WITH_DTRACE), 1)

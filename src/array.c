@@ -497,7 +497,7 @@ JL_DLLEXPORT jl_value_t *jl_alloc_string(size_t len)
     jl_ptls_t ptls = ct->ptls;
     const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
     if (sz <= GC_MAX_SZCLASS) {
-#ifndef MMTKHEAP
+#ifndef MMTK_GC
         int pool_id = jl_gc_szclass_align8(allocsz);
         jl_gc_pool_t *p = &ptls->heap.norm_pools[pool_id];
         int osize = jl_gc_sizeclasses[pool_id];
@@ -513,7 +513,7 @@ JL_DLLEXPORT jl_value_t *jl_alloc_string(size_t len)
     else {
         if (allocsz < sz) // overflow in adding offs, size was "negative"
             jl_throw(jl_memory_exception);
-#ifndef MMTKHEAP
+#ifndef MMTK_GC
         s = jl_gc_big_alloc_noinline(ptls, allocsz);
 #else
         s = jl_mmtk_gc_alloc_big(ptls, allocsz);

@@ -4,17 +4,6 @@ BUILDDIR := .
 include $(JULIAHOME)/Make.inc
 include $(JULIAHOME)/deps/llvm-ver.make
 
-ifeq ($(USE_MMTK), 1)
-CFLAGS = -DMMTKHEAP
-CPPFLAGS = -DMMTKHEAP
-MMTK_BUILD_TYPE = ${MMTK_BUILD}
-MMTK_DIR = ${MMTK_JULIA_DIR}
-MMTK_API_DIR_INCLUDE = $(MMTK_DIR)/api
-MMTK_JULIA_DIR_INCLUDE = $(MMTK_DIR)/../julia
-MMTK_LIB := -L$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE)/ -lmmtk_julia
-LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE)/
-endif
-
 JCFLAGS += $(CFLAGS)
 JCXXFLAGS += $(CXXFLAGS)
 JCPPFLAGS += $(CPPFLAGS)
@@ -30,10 +19,6 @@ FLAGS := \
 	-I$(LIBUV_INC) -I$(build_includedir) \
 	-I$(JULIAHOME)/deps/valgrind
 
-ifeq ($(USE_MMTK), 1)
-FLAGS += -I$(MMTK_API_DIR_INCLUDE) -I$(MMTK_JULIA_DIR_INCLUDE)
-endif
-
 FLAGS += -Wall -Wno-strict-aliasing -fno-omit-frame-pointer -fvisibility=hidden -fno-common \
 		 -Wno-comment -Wpointer-arith -Wundef
 ifeq ($(USEGCC),1) # GCC bug #25509 (void)__attribute__((warn_unused_result))
@@ -43,6 +28,10 @@ JCFLAGS += -Wold-style-definition -Wstrict-prototypes -Wc++-compat
 
 ifeq ($(USECLANG),1)
 FLAGS += -Wno-return-type-c-linkage
+endif
+
+ifeq ($(WITH_MMTK), 1)
+FLAGS += -I$(MMTK_API_INC) -I$(MMTK_JULIA_INC)
 endif
 
 FLAGS += -DJL_BUILD_ARCH='"$(ARCH)"'
@@ -60,9 +49,10 @@ SRCS := \
 	jltypes gf typemap smallintset ast builtins module interpreter symbol \
 	dlload sys init task array staticdata toplevel jl_uv datatype \
 	simplevector runtime_intrinsics precompile jloptions \
-	threading partr stackwalk gc gc-debug gc-pages gc-stacks gc-alloc-profiler method \
-	jlapi signal-handling safepoint timing subtype rtutils gc-heap-snapshot \
-	crc32c APInt-C processor ircode opaque_closure codegen-stubs coverage runtime_ccall
+	threading partr stackwalk gc-common gc gc-debug gc-pages gc-stacks gc-alloc-profiler \
+	mmtk-gc method jlapi signal-handling safepoint timing subtype rtutils \
+	gc-heap-snapshot crc32c APInt-C processor ircode opaque_closure codegen-stubs \
+	coverage runtime_ccall
 
 RT_LLVMLINK :=
 CG_LLVMLINK :=
@@ -173,13 +163,8 @@ LIBJULIA_PATH_REL := libjulia
 endif
 
 COMMON_LIBPATHS := -L$(build_libdir) -L$(build_shlibdir)
-RT_LIBS := $(WHOLE_ARCHIVE) $(LIBUV) $(WHOLE_ARCHIVE) $(LIBUTF8PROC) $(NO_WHOLE_ARCHIVE) $(LIBUNWIND) $(RT_LLVMLINK) $(OSLIBS)
-CG_LIBS := $(LIBUNWIND) $(CG_LLVMLINK) $(OSLIBS)
-
-ifeq ($(USE_MMTK), 1)
-CG_LIBS += $(MMTK_LIB)
-RT_LIBS += $(MMTK_LIB)
-endif
+RT_LIBS := $(WHOLE_ARCHIVE) $(LIBUV) $(WHOLE_ARCHIVE) $(LIBUTF8PROC) $(NO_WHOLE_ARCHIVE) $(LIBUNWIND) $(RT_LLVMLINK) $(OSLIBS) $(MMTK_LIB)
+CG_LIBS := $(LIBUNWIND) $(CG_LLVMLINK) $(OSLIBS) $(MMTK_LIB)
 
 RT_DEBUG_LIBS := $(COMMON_LIBPATHS) $(WHOLE_ARCHIVE) $(BUILDDIR)/flisp/libflisp-debug.a $(WHOLE_ARCHIVE) $(BUILDDIR)/support/libsupport-debug.a -ljulia-debug $(RT_LIBS)
 CG_DEBUG_LIBS := $(COMMON_LIBPATHS) $(CG_LIBS) -ljulia-debug -ljulia-internal-debug
@@ -189,10 +174,13 @@ CG_RELEASE_LIBS := $(COMMON_LIBPATHS) $(CG_LIBS) -ljulia -ljulia-internal
 OBJS := $(SRCS:%=$(BUILDDIR)/%.o)
 DOBJS := $(SRCS:%=$(BUILDDIR)/%.dbg.obj)
 
-ifeq ($(USE_MMTK), 1)
+ifeq ($(WITH_MMTK), 1)
 MMTK_SRCS := mmtk_julia
-MMTK_OBJS := $(MMTK_SRCS:%=$(MMTK_JULIA_DIR_INCLUDE)/%.o)
-MMTK_DOBJS := $(MMTK_SRCS:%=$(MMTK_JULIA_DIR_INCLUDE)/%.o)
+MMTK_OBJS := $(MMTK_SRCS:%=$(MMTK_JULIA_INC)/%.o)
+MMTK_DOBJS := $(MMTK_SRCS:%=$(MMTK_JULIA_INC)/%.dbg.obj)
+else
+MMTK_OBJS :=
+MMTK_DOBJS :=
 endif
 
 CODEGEN_OBJS := $(CODEGEN_SRCS:%=$(BUILDDIR)/%.o)
@@ -262,10 +250,10 @@ $(BUILDDIR)/%.o : $(SRCDIR)/%.d
 $(BUILDDIR)/%.dbg.obj : $(SRCDIR)/%.d
 	@$(call PRINT_DTRACE, $(DTRACE) -G -s $< -o $@)
 
-ifeq ($(USE_MMTK), 1)
-$(MMTK_JULIA_DIR_INCLUDE)/%.o: $(MMTK_JULIA_DIR_INCLUDE)/%.c $(HEADERS) | $(MMTK_JULIA_DIR_INCLUDE)
+ifeq ($(WITH_MMTK), 1)
+$(MMTK_JULIA_INC)/%.o: $(MMTK_JULIA_INC)/%.c $(HEADERS) | $(MMTK_JULIA_INC)
 	@$(call PRINT_CC, $(CC) $(JCPPFLAGS) $(JCFLAGS) $(SHIPFLAGS) $(DISABLE_ASSERTIONS) -c $< -o $@)
-$(MMTK_JULIA_DIR_INCLUDE)/%.dbg.obj: $(MMTK_JULIA_DIR_INCLUDE)/%.c $(HEADERS) | $(MMTK_JULIA_DIR_INCLUDE)
+$(MMTK_JULIA_INC)/%.dbg.obj: $(MMTK_JULIA_INC)/%.c $(HEADERS) | $(MMTK_JULIA_INC)
 	@$(call PRINT_CC, $(CC) $(JCPPFLAGS) $(JCFLAGS) $(DEBUGFLAGS) -c $< -o $@)
 endif
 
@@ -333,6 +321,8 @@ $(BUILDDIR)/disasm.o $(BUILDDIR)/disasm.dbg.obj: $(SRCDIR)/debuginfo.h $(SRCDIR)
 $(BUILDDIR)/gc-debug.o $(BUILDDIR)/gc-debug.dbg.obj: $(SRCDIR)/gc.h
 $(BUILDDIR)/gc-pages.o $(BUILDDIR)/gc-pages.dbg.obj: $(SRCDIR)/gc.h
 $(BUILDDIR)/gc.o $(BUILDDIR)/gc.dbg.obj: $(SRCDIR)/gc.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h
+$(BUILDDIR)/mmtk-gc.o $(BUILDDIR)/mmtk-gc.dbg.obj: $(SRCDIR)/gc.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h
+$(BUILDDIR)/gc-common.o $(BUILDDIR)/gc-common.dbg.obj: $(SRCDIR)/gc.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h
 $(BUILDDIR)/gc-heap-snapshot.o $(BUILDDIR)/gc-heap-snapshot.dbg.obj: $(SRCDIR)/gc.h $(SRCDIR)/gc-heap-snapshot.h
 $(BUILDDIR)/gc-alloc-profiler.o $(BUILDDIR)/gc-alloc-profiler.dbg.obj: $(SRCDIR)/gc.h $(SRCDIR)/gc-alloc-profiler.h
 $(BUILDDIR)/init.o $(BUILDDIR)/init.dbg.obj: $(SRCDIR)/builtin_proto.h
@@ -398,7 +388,6 @@ $(BUILDDIR)/julia_version.h: $(JULIAHOME)/VERSION
 
 CXXLD = $(CXX) -shared
 
-ifeq ($(USE_MMTK), 1)
 $(build_shlibdir)/libjulia-internal.$(JL_MAJOR_MINOR_SHLIB_EXT): $(SRCDIR)/julia.expmap $(OBJS) $(MMTK_OBJS) $(BUILDDIR)/flisp/libflisp.a $(BUILDDIR)/support/libsupport.a $(LIBUV)
 	@$(call PRINT_LINK, $(CXXLD) $(call IMPLIB_FLAGS,$@) $(JCXXFLAGS) $(CXXLDFLAGS) $(SHIPFLAGS) $(OBJS) $(MMTK_OBJS) $(RPATH_LIB) -o $@ \
 		$(JLDFLAGS) $(JLIBLDFLAGS) $(RT_RELEASE_LIBS) $(call SONAME_FLAGS,libjulia-internal.$(JL_MAJOR_SHLIB_EXT)))
@@ -410,19 +399,6 @@ $(build_shlibdir)/libjulia-internal-debug.$(JL_MAJOR_MINOR_SHLIB_EXT): $(SRCDIR)
 		$(JLDFLAGS) $(JLIBLDFLAGS) $(RT_DEBUG_LIBS) $(call SONAME_FLAGS,libjulia-internal-debug.$(JL_MAJOR_SHLIB_EXT)))
 	@$(INSTALL_NAME_CMD)libjulia-internal-debug.$(SHLIB_EXT) $@
 		$(DSYMUTIL) $@
-else
-$(build_shlibdir)/libjulia-internal.$(JL_MAJOR_MINOR_SHLIB_EXT): $(SRCDIR)/julia.expmap $(OBJS) $(BUILDDIR)/flisp/libflisp.a $(BUILDDIR)/support/libsupport.a $(LIBUV)
-	@$(call PRINT_LINK, $(CXXLD) $(call IMPLIB_FLAGS,$@) $(JCXXFLAGS) $(JL_CXXFLAGS) $(CXXLDFLAGS) $(SHIPFLAGS) $(OBJS) $(RPATH_LIB) -o $@ \
-		$(JLDFLAGS) $(JLIBLDFLAGS) $(RT_RELEASE_LIBS) $(call SONAME_FLAGS,libjulia-internal.$(JL_MAJOR_SHLIB_EXT)))
-	@$(INSTALL_NAME_CMD)libjulia-internal.$(SHLIB_EXT) $@
-	$(DSYMUTIL) $@
-
-$(build_shlibdir)/libjulia-internal-debug.$(JL_MAJOR_MINOR_SHLIB_EXT): $(SRCDIR)/julia.expmap $(DOBJS) $(BUILDDIR)/flisp/libflisp-debug.a $(BUILDDIR)/support/libsupport-debug.a $(LIBUV)
-	@$(call PRINT_LINK, $(CXXLD) $(call IMPLIB_FLAGS,$@) $(JCXXFLAGS) $(JL_CXXFLAGS) $(CXXLDFLAGS) $(DEBUGFLAGS) $(DOBJS) $(RPATH_LIB) -o $@ \
-		$(JLDFLAGS) $(JLIBLDFLAGS) $(RT_DEBUG_LIBS) $(call SONAME_FLAGS,libjulia-internal-debug.$(JL_MAJOR_SHLIB_EXT)))
-	@$(INSTALL_NAME_CMD)libjulia-internal-debug.$(SHLIB_EXT) $@
-	$(DSYMUTIL) $@
-endif
 
 ifneq ($(OS), WINNT)
 $(build_shlibdir)/libjulia-internal.$(JL_MAJOR_SHLIB_EXT) $(build_shlibdir)/libjulia-internal-debug.$(JL_MAJOR_SHLIB_EXT): $(build_shlibdir)/libjulia-internal%.$(JL_MAJOR_SHLIB_EXT): \
@@ -464,20 +440,11 @@ libjulia-codegen-release: $(build_shlibdir)/libjulia-codegen.$(JL_MAJOR_MINOR_SH
 libjulia-codegen-debug: $(build_shlibdir)/libjulia-codegen-debug.$(JL_MAJOR_MINOR_SHLIB_EXT)
 libjulia-codegen-debug libjulia-codegen-release: $(PUBLIC_HEADER_TARGETS)
 
-ifeq ($(USE_MMTK), 1)
 clean:
 	-rm -fr $(build_shlibdir)/libjulia-internal* $(build_shlibdir)/libccalltest* $(build_shlibdir)/libllvmcalltest*
 	-rm -f $(BUILDDIR)/julia_flisp.boot $(BUILDDIR)/julia_flisp.boot.inc
 	-rm -f $(BUILDDIR)/*.dbg.obj $(BUILDDIR)/*.o $(BUILDDIR)/*.dwo $(BUILDDIR)/*.$(SHLIB_EXT) $(BUILDDIR)/*.a
-	-rm -f $(BUILDDIR)/julia_version.h
-	-rm -fr $(MMTK_JULIA_DIR_INCLUDE)/*.o
-else
-clean:
-	-rm -fr $(build_shlibdir)/libjulia-internal* $(build_shlibdir)/libjulia-codegen* $(build_shlibdir)/libccalltest* $(build_shlibdir)/libllvmcalltest*
-	-rm -f $(BUILDDIR)/julia_flisp.boot $(BUILDDIR)/julia_flisp.boot.inc $(BUILDDIR)/jl_internal_funcs.inc
-	-rm -f $(BUILDDIR)/*.dbg.obj $(BUILDDIR)/*.o $(BUILDDIR)/*.dwo $(BUILDDIR)/*.$(SHLIB_EXT) $(BUILDDIR)/*.a $(BUILDDIR)/*.h.gen
-	-rm -f $(BUILDDIR)/julia_version.h
-endif
+	-rm -f $(BUILDDIR)/julia_version.h $(MMTK_OBJS) $(MMTK_DOBJS)
 
 clean-flisp:
 	-$(MAKE) -C $(SRCDIR)/flisp clean BUILDDIR='$(abspath $(BUILDDIR)/flisp)'

@@ -224,12 +224,12 @@ Value *FinalLowerGC::lowerGCAllocBytes(CallInst *target, Function &F)
         derefAttr = Attribute::getWithDereferenceableBytes(F.getContext(), sz + sizeof(void*));
     }
     else {
-#ifndef MMTKHEAP
+#ifndef MMTK_GC
         auto pool_offs = ConstantInt::get(Type::getInt32Ty(F.getContext()), offset);
         auto pool_osize = ConstantInt::get(Type::getInt32Ty(F.getContext()), osize);
         newI = builder.CreateCall(poolAllocFunc, { ptls, pool_offs, pool_osize });
         derefAttr = Attribute::getWithDereferenceableBytes(F.getContext(), osize);
-    #else
+#else // MMTK_GC
         auto pool_osize_i32 = ConstantInt::get(Type::getInt32Ty(F.getContext()), osize);
         auto pool_osize = ConstantInt::get(Type::getInt64Ty(F.getContext()), osize);
         auto cursor_pos = ConstantInt::get(Type::getInt64Ty(target->getContext()), offsetof(jl_tls_states_t, cursor));
@@ -295,7 +295,7 @@ Value *FinalLowerGC::lowerGCAllocBytes(CallInst *target, Function &F)
         phiNode->takeName(target);
 
         return phiNode;
-#endif
+#endif // MMTK_GC
     }
     newI->setAttributes(newI->getCalledFunction()->getAttributes());
     newI->addRetAttr(derefAttr);

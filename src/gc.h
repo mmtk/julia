@@ -4,6 +4,7 @@
   allocation and garbage collection
   . non-moving, precise mark and sweep collector
   . pool-allocates small objects, keeps big objects on a simple list
+  MMTk alternative
 */
 
 #ifndef JL_GC_H
@@ -26,6 +27,165 @@
 #include "julia_assert.h"
 #include "gc-heap-snapshot.h"
 #include "gc-alloc-profiler.h"
+
+// interface from and to gc-common.c
+extern void maybe_collect(jl_ptls_t ptls);
+extern void run_finalizer(jl_task_t *ct, void *o, void *ff);
+extern void *jl_malloc_aligned(size_t sz, size_t align);
+extern void *jl_gc_counted_calloc(size_t nm, size_t sz);
+extern void jl_gc_counted_free_with_size(void *p, size_t sz);
+extern void *jl_gc_counted_realloc_with_old_size(void *p, size_t old, size_t sz);
+extern void *jl_realloc_aligned(void *d, size_t sz, size_t oldsz, size_t align);
+extern void jl_gc_add_finalizer_th(jl_ptls_t ptls, jl_value_t *v, jl_function_t *f);
+extern void jl_finalize_th(jl_task_t *ct, jl_value_t *o);
+extern jl_weakref_t *jl_gc_new_weakref_th(jl_ptls_t ptls, jl_value_t *value);
+extern jl_value_t *jl_gc_big_alloc_inner(jl_ptls_t ptls, size_t sz);
+extern jl_value_t *jl_gc_pool_alloc_inner(jl_ptls_t ptls, int pool_offset, int osize);
+extern void jl_rng_split(uint64_t to[4], uint64_t from[4]);
+extern void gc_premark(jl_ptls_t ptls2);
+extern void *gc_managed_realloc_(jl_ptls_t ptls, void *d, size_t sz, size_t oldsz,
+                                 int isaligned, jl_value_t *owner, int8_t can_collect);
+extern size_t jl_array_nbytes(jl_array_t *a);
+extern void objprofile_count(void *ty, int old, int sz);
+
+#define malloc_cache_align(sz) jl_malloc_aligned(sz, JL_CACHE_BYTE_ALIGNMENT)
+#define realloc_cache_align(p, sz, oldsz) jl_realloc_aligned(p, sz, oldsz, JL_CACHE_BYTE_ALIGNMENT)
+
+// common types and globals
+#ifdef _P64
+typedef uint64_t memsize_t;
+#else
+typedef uint32_t memsize_t;
+#endif
+
+extern const size_t default_collect_interval;
+extern const size_t max_collect_interval;
+extern size_t last_long_collect_interval;
+extern size_t total_mem;
+extern memsize_t max_total_memory;
+extern _Atomic(uint32_t) jl_gc_disable_counter;
+extern jl_mutex_t heapsnapshot_lock;
+extern uint64_t finalizer_rngState[];
+extern int gc_n_threads;
+extern jl_ptls_t* gc_all_tls_states;
+
+// keep in sync with the Julia type of the same name in base/timing.jl
+typedef struct {
+    int64_t     allocd;
+    int64_t     deferred_alloc;
+    int64_t     freed;
+    uint64_t    malloc;
+    uint64_t    realloc;
+    uint64_t    poolalloc;
+    uint64_t    bigalloc;
+    uint64_t    freecall;
+    uint64_t    total_time;
+    uint64_t    total_allocd;
+    uint64_t    since_sweep;
+    size_t      interval;
+    int         pause;
+    int         full_sweep;
+    uint64_t    max_pause;
+    uint64_t    max_memory;
+    uint64_t    time_to_safepoint;
+    uint64_t    max_time_to_safepoint;
+    uint64_t    sweep_time;
+    uint64_t    mark_time;
+    uint64_t    total_sweep_time;
+    uint64_t    total_mark_time;
+} jl_gc_num_t;
+
+extern jl_gc_num_t gc_num;
+
+// data structure for tracking malloc'd arrays.
+typedef struct _mallocarray_t {
+    jl_array_t *a;
+    struct _mallocarray_t *next;
+} mallocarray_t;
+
+extern void combine_thread_gc_counts(jl_gc_num_t *dest);
+extern void reset_thread_gc_counts(void);
+
+// layout for big (>2k) objects
+JL_EXTENSION typedef struct _bigval_t {
+    struct _bigval_t *next;
+    struct _bigval_t **prev; // pointer to the next field of the prev entry
+    union {
+        size_t sz;
+        uintptr_t age : 2;
+    };
+#ifdef _P64 // Add padding so that the value is 64-byte aligned
+    // (8 pointers of 8 bytes each) - (4 other pointers in struct)
+    void *_padding[8 - 4];
+#else
+    // (16 pointers of 4 bytes each) - (4 other pointers in struct)
+    void *_padding[16 - 4];
+#endif
+    //struct jl_taggedvalue_t <>;
+    union {
+        uintptr_t header;
+        struct {
+            uintptr_t gc:2;
+        } bits;
+    };
+    // must be 64-byte aligned here, in 32 & 64 bit modes
+} bigval_t;
+
+STATIC_INLINE uintptr_t gc_ptr_tag(void *v, uintptr_t mask) JL_NOTSAFEPOINT
+{
+    return ((uintptr_t)v) & mask;
+}
+
+STATIC_INLINE void *gc_ptr_clear_tag(void *v, uintptr_t mask) JL_NOTSAFEPOINT
+{
+    return (void*)(((uintptr_t)v) & ~mask);
+}
+
+STATIC_INLINE int gc_marked(uintptr_t bits) JL_NOTSAFEPOINT
+{
+    return (bits & GC_MARKED) != 0;
+}
+
+#ifdef GC_VERIFY
+#error "GC_VERIFY is unsupported with MMTk"
+#endif
+
+#ifdef MEMFENCE
+#error "MEMFENCE is unsupported with MMTk"
+#endif
+
+#ifdef GC_DEBUG_ENV
+#error "GC_DEBUG_ENV is unsupported with MMTk"
+#endif
+
+#ifdef GC_FINAL_STATS
+#error "GC_FINAL_STATS is currently unsupported with MMTk"
+#endif
+
+#ifdef GC_TIME
+#error "GC_TIME is currently unsupported with MMTk"
+#endif
+
+#ifdef MEMPROFILE
+#error "MEMPROFILE is not supported with MMTk"
+#endif
+
+#ifdef OBJPROFILE
+#ifdef MMTK_GC
+#warning "OBJPROFILE is unsupported with MMTk; disabling"
+#undef OBJPROFILE
+#endif
+#endif
+
+
+#ifdef MMTK_GC
+#include "mmtk.h"
+
+typedef struct {
+    char c;
+} jl_gc_pagemeta_t;
+
+#else  // !MMTK_GC
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,32 +216,6 @@ typedef struct {
     jl_alloc_num_t print;
 } jl_gc_debug_env_t;
 
-// This struct must be kept in sync with the Julia type of the same name in base/timing.jl
-typedef struct {
-    int64_t     allocd;
-    int64_t     deferred_alloc;
-    int64_t     freed;
-    uint64_t    malloc;
-    uint64_t    realloc;
-    uint64_t    poolalloc;
-    uint64_t    bigalloc;
-    uint64_t    freecall;
-    uint64_t    total_time;
-    uint64_t    total_allocd;
-    uint64_t    since_sweep;
-    size_t      interval;
-    int         pause;
-    int         full_sweep;
-    uint64_t    max_pause;
-    uint64_t    max_memory;
-    uint64_t    time_to_safepoint;
-    uint64_t    max_time_to_safepoint;
-    uint64_t    sweep_time;
-    uint64_t    mark_time;
-    uint64_t    total_sweep_time;
-    uint64_t    total_mark_time;
-} jl_gc_num_t;
-
 typedef enum {
     GC_empty_chunk,
     GC_objary_chunk,
@@ -102,39 +236,6 @@ typedef struct _jl_gc_chunk_t {
 } jl_gc_chunk_t;
 
 #define MAX_REFS_AT_ONCE (1 << 16)
-
-// layout for big (>2k) objects
-
-JL_EXTENSION typedef struct _bigval_t {
-    struct _bigval_t *next;
-    struct _bigval_t **prev; // pointer to the next field of the prev entry
-    union {
-        size_t sz;
-        uintptr_t age : 2;
-    };
-#ifdef _P64 // Add padding so that the value is 64-byte aligned
-    // (8 pointers of 8 bytes each) - (4 other pointers in struct)
-    void *_padding[8 - 4];
-#else
-    // (16 pointers of 4 bytes each) - (4 other pointers in struct)
-    void *_padding[16 - 4];
-#endif
-    //struct jl_taggedvalue_t <>;
-    union {
-        uintptr_t header;
-        struct {
-            uintptr_t gc:2;
-        } bits;
-    };
-    // must be 64-byte aligned here, in 32 & 64 bit modes
-} bigval_t;
-
-// data structure for tracking malloc'd arrays.
-
-typedef struct _mallocarray_t {
-    jl_array_t *a;
-    struct _mallocarray_t *next;
-} mallocarray_t;
 
 // pool page metadata
 typedef struct {
@@ -250,14 +351,11 @@ STATIC_INLINE unsigned ffs_u32(uint32_t bitvec)
 }
 #endif
 
-extern jl_gc_num_t gc_num;
 extern pagetable_t memory_map;
 extern bigval_t *big_objects_marked;
 extern arraylist_t finalizer_list_marked;
 extern arraylist_t to_finalize;
 extern int64_t lazy_freed_pages;
-extern int gc_n_threads;
-extern jl_ptls_t* gc_all_tls_states;
 
 STATIC_INLINE bigval_t *bigval_header(jl_taggedvalue_t *o) JL_NOTSAFEPOINT
 {
@@ -280,11 +378,6 @@ STATIC_INLINE jl_taggedvalue_t *page_pfl_end(jl_gc_pagemeta_t *p) JL_NOTSAFEPOIN
     return (jl_taggedvalue_t*)(p->data + p->fl_end_offset);
 }
 
-STATIC_INLINE int gc_marked(uintptr_t bits) JL_NOTSAFEPOINT
-{
-    return (bits & GC_MARKED) != 0;
-}
-
 STATIC_INLINE int gc_old(uintptr_t bits) JL_NOTSAFEPOINT
 {
     return (bits & GC_OLD) != 0;
@@ -293,16 +386,6 @@ STATIC_INLINE int gc_old(uintptr_t bits) JL_NOTSAFEPOINT
 STATIC_INLINE uintptr_t gc_set_bits(uintptr_t tag, int bits) JL_NOTSAFEPOINT
 {
     return (tag & ~(uintptr_t)3) | bits;
-}
-
-STATIC_INLINE uintptr_t gc_ptr_tag(void *v, uintptr_t mask) JL_NOTSAFEPOINT
-{
-    return ((uintptr_t)v) & mask;
-}
-
-STATIC_INLINE void *gc_ptr_clear_tag(void *v, uintptr_t mask) JL_NOTSAFEPOINT
-{
-    return (void*)(((uintptr_t)v) & ~mask);
 }
 
 NOINLINE uintptr_t gc_get_stack_ptr(void);
@@ -538,24 +621,6 @@ static inline void gc_scrub(void)
 }
 #endif
 
-#ifdef OBJPROFILE
-void objprofile_count(void *ty, int old, int sz) JL_NOTSAFEPOINT;
-void objprofile_printall(void);
-void objprofile_reset(void);
-#else
-static inline void objprofile_count(void *ty, int old, int sz) JL_NOTSAFEPOINT
-{
-}
-
-static inline void objprofile_printall(void)
-{
-}
-
-static inline void objprofile_reset(void)
-{
-}
-#endif
-
 #ifdef MEMPROFILE
 void gc_stats_all_pool(void);
 void gc_stats_big_obj(void);
@@ -567,13 +632,13 @@ void gc_stats_big_obj(void);
 // For debugging
 void gc_count_pool(void);
 
-size_t jl_array_nbytes(jl_array_t *a) JL_NOTSAFEPOINT;
-
 JL_DLLEXPORT void jl_enable_gc_logging(int enable);
 void _report_gc_finished(uint64_t pause, uint64_t freed, int full, int recollect) JL_NOTSAFEPOINT;
 
 #ifdef __cplusplus
 }
 #endif
+
+#endif // !MMTK_GC
 
 #endif

@@ -4,7 +4,7 @@
 #ifndef JL_THREADS_H
 #define JL_THREADS_H
 
-#ifdef MMTKHEAP
+#ifdef MMTK_GC
 #include "mmtkMutator.h"
 #endif
 
@@ -281,7 +281,7 @@ typedef struct _jl_tls_states_t {
         uint64_t sleep_leave;
     )
 
-#ifdef MMTKHEAP
+#ifdef MMTK_GC
     MMTkMutatorContext* mmtk_mutator_ptr;
     void* cursor;
     void* limit;

@@ -295,12 +295,7 @@ JL_DLLEXPORT void jl_atexit_hook(int exitcode) JL_NOTSAFEPOINT_ENTER
     JL_STDOUT = (uv_stream_t*) STDOUT_FILENO;
     JL_STDERR = (uv_stream_t*) STDERR_FILENO;
 
-#ifndef MMTKHEAP
-    if (ct)
-        jl_gc_run_all_finalizers(ct);
-#else
-    mmtk_jl_gc_run_all_finalizers();
-#endif
+    jl_gc_run_all_finalizers(ct);
 
     uv_loop_t *loop = jl_global_event_loop();
     if (loop != NULL) {
@@ -810,11 +805,6 @@ JL_DLLEXPORT void julia_init(JL_IMAGE_SEARCH rel)
     arraylist_new(&jl_image_relocs, 0);
 
     jl_ptls_t ptls = jl_init_threadtls(0);
-
-#ifdef MMTKHEAP
-    // start MMTk's GC
-    initialize_collection((void*) ptls);
-#endif
 
 #pragma GCC diagnostic push
 #if defined(_COMPILER_GCC_) && __GNUC__ >= 12
