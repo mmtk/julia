@@ -718,13 +718,18 @@ $(error MMTK_JULIA_DIR must be set to use MMTk)
 endif
 JCXXFLAGS += -DMMTK_GC
 JCFLAGS += -DMMTK_GC
-# TODO: make this "debug" as needed
-MMTK_BUILD_TYPE = release
+ifeq (${MMTK_BUILD},)
+ifeq (debug,$(findstring debug,$(MAKECMDGOALS)))
+MMTK_BUILD = debug
+else
+MMTK_BUILD = release
+endif
+endif
 MMTK_DIR = ${MMTK_JULIA_DIR}/mmtk
 MMTK_API_INC = $(MMTK_DIR)/api
 MMTK_JULIA_INC = ${MMTK_JULIA_DIR}/julia
-MMTK_LIB := -L$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE) -lmmtk_julia
-LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD_TYPE)/
+MMTK_LIB := -L$(MMTK_DIR)/target/$(MMTK_BUILD) -lmmtk_julia
+LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD)/
 else
 MMTK_JULIA_INC :=
 MMTK_LIB :=
