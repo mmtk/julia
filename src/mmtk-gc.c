@@ -266,9 +266,6 @@ void jl_init_thread_heap(jl_ptls_t ptls)
 
     MMTk_Mutator mmtk_mutator = bind_mutator((void *)ptls, ptls->tid);
     ptls->mmtk_mutator_ptr = ((MMTkMutatorContext*)mmtk_mutator);
-
-    if (ptls->tid == 0)
-        initialize_collection((void *)ptls);
 }
 
 // System-wide initialization
