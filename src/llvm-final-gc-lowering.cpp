@@ -171,25 +171,39 @@ Value *FinalLowerGC::lowerGCAllocBytes(CallInst *target, Function &F)
 {
     assert(target->arg_size() == 2);
     auto sz = (size_t)cast<ConstantInt>(target->getArgOperand(1))->getZExtValue();
-    // This is strongly architecture and OS dependent
-    int osize;
-    int offset = jl_gc_classify_pools(sz, &osize);
+
     IRBuilder<> builder(target);
     builder.SetCurrentDebugLocation(target->getDebugLoc());
     auto ptls = target->getArgOperand(0);
     CallInst *newI;
+#ifndef MMTKHEAP
+    // This is strongly architecture and OS dependent
+    int osize;
+    int offset = jl_gc_classify_pools(sz, &osize);
     if (offset < 0) {
         newI = builder.CreateCall(
             bigAllocFunc,
             { ptls, ConstantInt::get(T_size, sz + sizeof(void*)) });
     }
     else {
-#ifndef MMTKHEAP
         auto pool_offs = ConstantInt::get(Type::getInt32Ty(F.getContext()), offset);
         auto pool_osize = ConstantInt::get(Type::getInt32Ty(F.getContext()), osize);
         newI = builder.CreateCall(poolAllocFunc, { ptls, pool_offs, pool_osize });
+    }
+    newI->setAttributes(newI->getCalledFunction()->getAttributes());
+    newI->takeName(target);
+    return newI;
 #else
-        auto pool_osize = ConstantInt::get(Type::getInt64Ty(F.getContext()), osize);
+    if (sz + sizeof(void*) >= MAX_STANDARD_OBJECT_SIZE) {
+        newI = builder.CreateCall(
+                bigAllocFunc,
+                { ptls, ConstantInt::get(T_size, sz + sizeof(void*)) });
+
+        newI->setAttributes(newI->getCalledFunction()->getAttributes());
+        newI->takeName(target);
+        return newI;
+    } else {
+        auto pool_osize = ConstantInt::get(T_size, sz + sizeof(void*));
         auto cursor_pos = ConstantInt::get(Type::getInt64Ty(target->getContext()), offsetof(jl_tls_states_t, cursor));
         auto limit_pos = ConstantInt::get(Type::getInt64Ty(target->getContext()),  offsetof(jl_tls_states_t, limit));
 
@@ -253,11 +267,8 @@ Value *FinalLowerGC::lowerGCAllocBytes(CallInst *target, Function &F)
         phiNode->takeName(target);
 
         return phiNode;
-#endif
     }
-    newI->setAttributes(newI->getCalledFunction()->getAttributes());
-    newI->takeName(target);
-    return newI;
+#endif
 }
 
 bool FinalLowerGC::doInitialization(Module &M) {

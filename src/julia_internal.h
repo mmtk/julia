@@ -239,7 +239,8 @@ jl_value_t *jl_gc_pool_alloc_noinline(jl_ptls_t ptls, int pool_offset,
                                    int osize);
 jl_value_t *jl_gc_big_alloc_noinline(jl_ptls_t ptls, size_t allocsz);
 #ifdef MMTKHEAP
-JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, int pool_offset, int osize, void* ty);
+extern size_t MAX_STANDARD_OBJECT_SIZE;
+JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, size_t size, void* ty);
 JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_big(jl_ptls_t ptls, size_t allocsz);
 #endif
 JL_DLLEXPORT int jl_gc_classify_pools(size_t sz, int *osize);
@@ -364,29 +365,30 @@ STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
 {
     jl_value_t *v;
     const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
-    if (sz <= GC_MAX_SZCLASS) {
 #ifndef MMTKHEAP
+    if (sz <= GC_MAX_SZCLASS) {
         int pool_id = jl_gc_szclass(allocsz);
         jl_gc_pool_t *p = &ptls->heap.norm_pools[pool_id];
         int osize = jl_gc_sizeclasses[pool_id];
         // We call `jl_gc_pool_alloc_noinline` instead of `jl_gc_pool_alloc` to avoid double-counting in
         // the Allocations Profiler. (See https://github.com/JuliaLang/julia/pull/43868 for more details.)
         v = jl_gc_pool_alloc_noinline(ptls, (char*)p - (char*)ptls, osize);
-#else
-        int pool_id = jl_gc_szclass(allocsz);
-        int osize = jl_gc_sizeclasses[pool_id];
-        v = jl_mmtk_gc_alloc_default(ptls, pool_id, osize, ty);
-#endif
     }
     else {
         if (allocsz < sz) // overflow in adding offs, size was "negative"
             jl_throw(jl_memory_exception);
-#ifndef MMTKHEAP
         v = jl_gc_big_alloc_noinline(ptls, allocsz);
-#else
-        v = jl_mmtk_gc_alloc_big(ptls, allocsz);
-#endif
     }
+#else
+    if (allocsz < sz) // overflow in adding offs, size was "negative"
+        jl_throw(jl_memory_exception);
+
+    if (allocsz < (MAX_STANDARD_OBJECT_SIZE - 8)) { // buffer may take 8 bytes extra
+        v = jl_mmtk_gc_alloc_default(ptls, allocsz, ty);
+    } else {
+        v = jl_mmtk_gc_alloc_big(ptls, allocsz);
+    }
+#endif
     jl_set_typeof(v, ty);
     maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
     return v;
