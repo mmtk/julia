@@ -161,7 +161,7 @@ inline jl_value_t *jl_gc_pool_alloc_inner(jl_ptls_t ptls, int pool_offset, int o
     // TODO: drop this okay?
     // maybe_collect(ptls);
 
-    jl_value_t *v = jl_mmtk_gc_alloc_default(ptls, pool_offset, osize, NULL);
+    jl_value_t *v = jl_mmtk_gc_alloc_default(ptls, (size_t) osize, NULL);
     // TODO: this is done (without atomic operations) in jl_mmtk_gc_alloc_default; enable
     // here when that's edited?
     /*
@@ -546,7 +546,8 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
 void *jl_gc_perm_alloc_nolock(size_t sz, int zero, unsigned align, unsigned offset)
 {
     jl_ptls_t ptls = jl_current_task->ptls;
-    void* addr = mmtk_alloc(&ptls->mmtk_mutator, sz, align, offset, 1);
+    size_t allocsz = mmtk_align_alloc_size(sz);
+    void* addr = mmtk_alloc(&ptls->mmtk_mutator, allocsz, align, offset, 1);
     return addr;
 }
 

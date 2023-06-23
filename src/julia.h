@@ -2414,6 +2414,27 @@ STATIC_INLINE void mmtk_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOI
 {
     mmtk_gc_wb_fast(parent, ptr);
 }
+
+#define MMTK_MIN_ALIGNMENT 4
+STATIC_INLINE size_t mmtk_align_alloc_size(size_t sz) JL_NOTSAFEPOINT
+{
+    size_t ret =  (sz + MMTK_MIN_ALIGNMENT - 1) & ~(MMTK_MIN_ALIGNMENT -1);
+    if (ret < sz) {
+        printf("wrong!!\n");
+        exit(1);
+    }
+    return ret;
+}
+STATIC_INLINE size_t mmtk_align_alloc_size_8(size_t sz) JL_NOTSAFEPOINT
+{
+    size_t ret = (sz + 8 - 1) & ~(8 -1);
+    if (ret < sz) {
+        printf("wrong!!\n");
+        exit(1);
+    }
+    return ret;
+}
+
 #endif
 
 #ifdef __cplusplus
