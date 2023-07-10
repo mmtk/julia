@@ -329,9 +329,9 @@ void jl_gc_init(void)
 
     // if only max size is specified initialize MMTk with a fixed size heap
     if (max_size_def != NULL || (max_size_gb != NULL && (min_size_def == NULL && min_size_gb == NULL))) {
-        mmtk_gc_init(0, max_heap_size, jl_options.ngcthreads, &mmtk_upcalls, (sizeof(jl_taggedvalue_t)));
+        mmtk_gc_init(0, max_heap_size, jl_options.ngcthreads, &mmtk_upcalls, (sizeof(jl_taggedvalue_t)), jl_buff_tag);
     } else {
-        mmtk_gc_init(min_heap_size, max_heap_size, jl_options.ngcthreads, &mmtk_upcalls, (sizeof(jl_taggedvalue_t)));
+        mmtk_gc_init(min_heap_size, max_heap_size, jl_options.ngcthreads, &mmtk_upcalls, (sizeof(jl_taggedvalue_t)), jl_buff_tag);
     }
 }
 
