@@ -341,6 +341,7 @@ jl_value_t *jl_gc_big_alloc_noinline(jl_ptls_t ptls, size_t allocsz);
 #ifdef MMTK_GC
 JL_DLLIMPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, int pool_offset, int osize, void* ty);
 JL_DLLIMPORT jl_value_t *jl_mmtk_gc_alloc_big(jl_ptls_t ptls, size_t allocsz);
+JL_DLLIMPORT jl_value_t *jl_mmtk_gc_alloc_non_moving(jl_ptls_t ptls, int osize, void* ty);
 JL_DLLIMPORT extern void mmtk_post_alloc(void* mutator, void* obj, size_t bytes, int allocator);
 JL_DLLIMPORT extern void mmtk_initialize_collection(void* tls);
 #endif // MMTK_GC
@@ -506,6 +507,20 @@ STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
     maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
     return v;
 }
+
+STATIC_INLINE jl_value_t *jl_gc_alloc__non_moving(jl_ptls_t ptls, size_t sz, void *ty)
+{
+    jl_value_t *v;
+    const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
+
+    if (allocsz < sz) // overflow in adding offs, size was "negative"
+        jl_throw(jl_memory_exception);
+    v = jl_mmtk_gc_alloc_non_moving(ptls, allocsz, ty);
+
+    jl_set_typeof(v, ty);
+    maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
+    return v;
+}
 #endif // MMTK_GC
 
 /* Programming style note: When using jl_gc_alloc, do not JL_GC_PUSH it into a
@@ -525,6 +540,17 @@ JL_DLLEXPORT jl_value_t *jl_gc_alloc(jl_ptls_t ptls, size_t sz, void *ty);
 #  define jl_gc_alloc(ptls, sz, ty) jl_gc_alloc_(ptls, sz, ty)
 #endif
 
+JL_DLLEXPORT jl_value_t *jl_gc_alloc_non_moving(jl_ptls_t ptls, size_t sz, void *ty);
+
+#ifdef __GNUC__
+#  define jl_gc_alloc_non_moving(ptls, sz, ty)  \
+    (__builtin_constant_p(sz) ?      \
+     jl_gc_alloc__non_moving(ptls, sz, ty) :    \
+     (jl_gc_alloc_non_moving)(ptls, sz, ty))
+#else
+#  define jl_gc_alloc_non_moving(ptls, sz, ty) jl_gc_alloc__non_moving(ptls, sz, ty)
+#endif
+
 // jl_buff_tag must be an actual pointer here, so it cannot be confused for an actual type reference.
 // defined as uint64_t[3] so that we can get the right alignment of this and a "type tag" on it
 const extern uint64_t _jl_buff_tag[3];
@@ -534,7 +560,7 @@ JL_DLLEXPORT uintptr_t jl_get_buff_tag(void);
 typedef void jl_gc_tracked_buffer_t; // For the benefit of the static analyzer
 STATIC_INLINE jl_gc_tracked_buffer_t *jl_gc_alloc_buf(jl_ptls_t ptls, size_t sz)
 {
-    return jl_gc_alloc(ptls, sz, (void*)jl_buff_tag);
+    return jl_gc_alloc_non_moving(ptls, sz, (void*)jl_buff_tag);
 }
 
 STATIC_INLINE jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT

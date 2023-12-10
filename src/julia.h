@@ -2483,6 +2483,23 @@ STATIC_INLINE void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, vo
     }
 }
 
+STATIC_INLINE void mmtk_non_moving_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    // FIXME: since allocation currently happens in the immortal space we need the same WB code
+    if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
+        intptr_t addr = (intptr_t) obj;
+        uint8_t* meta_addr = (uint8_t*) (MMTK_SIDE_LOG_BIT_BASE_ADDRESS) + (addr >> 6);
+        intptr_t shift = (addr >> 3) & 0b111;
+        while(1) {
+            uint8_t old_val = *meta_addr;
+            uint8_t new_val = old_val | (1 << shift);
+            if (jl_atomic_cmpswap((_Atomic(uint8_t)*)meta_addr, &old_val, new_val)) {
+                break;
+            }
+        }
+    }
+}
+
+
 #endif
 
 #ifdef __cplusplus

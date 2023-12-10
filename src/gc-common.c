@@ -414,6 +414,12 @@ JL_DLLEXPORT jl_value_t *(jl_gc_alloc)(jl_ptls_t ptls, size_t sz, void *ty)
     return jl_gc_alloc_(ptls, sz, ty);
 }
 
+JL_DLLEXPORT jl_value_t *(jl_gc_alloc_non_moving)(jl_ptls_t ptls, size_t sz, void *ty)
+{
+    return jl_gc_alloc__non_moving(ptls, sz, ty);
+}
+
+
 // Instrumented version of jl_gc_big_alloc_inner, called into by
 // LLVM-generated code.
 JL_DLLEXPORT jl_value_t *jl_gc_big_alloc(jl_ptls_t ptls, size_t sz)
