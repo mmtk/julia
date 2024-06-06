@@ -109,8 +109,8 @@ JL_DLLEXPORT void JL_NORETURN jl_too_many_args(const char *fname, int max)
 
 // with function name / location description, plus extra context
 JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname, const char *context,
-                                               jl_value_t *expected JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED,
-                                               jl_value_t *got JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED)
+                                               jl_value_t *expected JL_MAYBE_UNROOTED,
+                                               jl_value_t *got JL_MAYBE_UNROOTED)
 {
     jl_value_t *ctxt=NULL;
     JL_GC_PUSH3(&ctxt, &expected, &got);
@@ -121,8 +121,8 @@ JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname, const char *co
 
 // with function name or description only
 JL_DLLEXPORT void JL_NORETURN jl_type_error(const char *fname,
-                                            jl_value_t *expected JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED,
-                                            jl_value_t *got JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED)
+                                            jl_value_t *expected JL_MAYBE_UNROOTED,
+                                            jl_value_t *got JL_MAYBE_UNROOTED)
 {
     jl_type_error_rt(fname, "", expected, got);
 }

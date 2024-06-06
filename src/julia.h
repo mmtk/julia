@@ -915,7 +915,6 @@ extern void _JL_GC_PUSHARGS(jl_value_t **, size_t) JL_NOTSAFEPOINT;
 
 extern void JL_GC_POP() JL_NOTSAFEPOINT;
 
-#ifdef MMTK_GC
 extern void JL_GC_PUSH1_NO_TPIN(void *) JL_NOTSAFEPOINT;
 extern void JL_GC_PUSH2_NO_TPIN(void *, void *) JL_NOTSAFEPOINT;
 extern void JL_GC_PUSH3_NO_TPIN(void *, void *, void *)  JL_NOTSAFEPOINT;
@@ -930,8 +929,6 @@ extern void _JL_GC_PUSHARGS_NO_TPIN(jl_value_t **, size_t) JL_NOTSAFEPOINT;
   rts_var = (jl_value_t **)alloca(sizeof(void*) * (n)); \
   memset(rts_var, 0, sizeof(void*) * (n)); \
   _JL_GC_PUSHARGS_NO_TPIN(rts_var, (n));
-
-#endif
 
 #else
 
@@ -976,9 +973,6 @@ extern void _JL_GC_PUSHARGS_NO_TPIN(jl_value_t **, size_t) JL_NOTSAFEPOINT;
 
 #define JL_GC_POP() (jl_pgcstack = jl_pgcstack->prev)
 
-#endif
-
-#ifdef MMTK_GC
 // these are pinning roots: only the root object needs to be pinned as opposed to
 // the functions above which are transitively pinning
 #define JL_GC_PUSH1_NO_TPIN(arg1)                                                                                     \
@@ -1019,25 +1013,7 @@ extern void _JL_GC_PUSHARGS_NO_TPIN(jl_value_t **, size_t) JL_NOTSAFEPOINT;
   ((void**)rts_var)[-1] = jl_pgcstack;                                                                  \
   memset((void*)rts_var, 0, (n)*sizeof(jl_value_t*));                                                   \
   jl_pgcstack = (jl_gcframe_t*)&(((void**)rts_var)[-2])
-#else
-// When not using MMTk, default to the stock functions
-#define JL_GC_PUSH1_NO_TPIN(arg1) JL_GC_PUSH1(arg1)
 
-#define JL_GC_PUSH2_NO_TPIN(arg1, arg2) JL_GC_PUSH2(arg1, arg2)
-
-#define JL_GC_PUSH3_NO_TPIN(arg1, arg2, arg3) JL_GC_PUSH3(arg1, arg2, arg3)
-
-#define JL_GC_PUSH4_NO_TPIN(arg1, arg2, arg3, arg4) JL_GC_PUSH4(arg1, arg2, arg3, arg4)
-
-#define JL_GC_PUSH5_NO_TPIN(arg1, arg2, arg3, arg4, arg5) JL_GC_PUSH5(arg1, arg2, arg3, arg4, arg5)
-
-#define JL_GC_PUSH6_NO_TPIN(arg1, arg2, arg3, arg4, arg5, arg6) JL_GC_PUSH6(arg1, arg2, arg3, arg4, arg5, arg6)
-
-#define JL_GC_PUSH7_NO_TPIN(arg1, arg2, arg3, arg4, arg5, arg6, arg7) JL_GC_PUSH7(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-
-#define JL_GC_PUSH8_NO_TPIN(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) JL_GC_PUSH8(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8)
-
-#define JL_GC_PUSHARGS_NO_TPIN(rts_var,n) JL_GC_PUSHARGS(rts_var,n)
 #endif
 
 JL_DLLEXPORT int jl_gc_enable(int on);
@@ -1873,12 +1849,12 @@ JL_DLLEXPORT void JL_NORETURN jl_exceptionf(jl_datatype_t *ty,
 JL_DLLEXPORT void JL_NORETURN jl_too_few_args(const char *fname, int min);
 JL_DLLEXPORT void JL_NORETURN jl_too_many_args(const char *fname, int max);
 JL_DLLEXPORT void JL_NORETURN jl_type_error(const char *fname,
-                                            jl_value_t *expected JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED,
-                                            jl_value_t *got JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED);
+                                            jl_value_t *expected JL_MAYBE_UNROOTED,
+                                            jl_value_t *got JL_MAYBE_UNROOTED);
 JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname,
                                                const char *context,
-                                               jl_value_t *ty JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED,
-                                               jl_value_t *got JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED);
+                                               jl_value_t *ty JL_MAYBE_UNROOTED,
+                                               jl_value_t *got JL_MAYBE_UNROOTED);
 JL_DLLEXPORT void JL_NORETURN jl_undefined_var_error(jl_sym_t *var);
 JL_DLLEXPORT void JL_NORETURN jl_has_no_field_error(jl_sym_t *type_name, jl_sym_t *var);
 JL_DLLEXPORT void JL_NORETURN jl_atomic_error(char *str);

@@ -1,8 +1,6 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
 // Assumptions for pinning:
-// * args need to be pinned
-// * JL_ROOTING_ARGUMENT and JL_ROOTED_ARGUMENT will propagate pinning state as well.
 // * The checker may not consider alias for derived pointers in some cases.
 //   * if f(x) returns a derived pointer from x, a = f(x); b = f(x); PTR_PIN(a); The checker will NOT find b as pinned.
 //   * a = x->y; b = x->y; PTR_PIN(a); The checker will find b as pinned.
@@ -106,8 +104,14 @@ public:
                      : (P == Moved) ? "Moved"
                      : "Error");
       llvm::dbgs() << ",";
-      if (S == Rooted)
-        llvm::dbgs() << "(" << RootDepth << ")";
+      if (S == Rooted) {
+        llvm::dbgs() << "Root(";
+        if (Root) {
+          Root->dump();
+          llvm::dbgs() << ",";
+        }
+        llvm::dbgs() << RootDepth << ")";
+      }
     }
 
     bool operator==(const ValueState &VS) const {
@@ -169,6 +173,9 @@ public:
       } else if (parent.isPinned()) {
         // If parent is pinned, the child is not pinned.
         return getNotPinned(parent);
+      } else if (parent.isMoved()) {
+        // If parent is moved, the child is not pinned.
+        return getNotPinned(parent);
       } else {
         // For other cases, the children have the same state as the parent.
         return parent;
@@ -194,19 +201,20 @@ public:
                                      const ParmVarDecl *PVD) {
       bool isFunctionSafepoint = !isFDAnnotatedNotSafepoint(FD);
       bool maybeUnrooted = declHasAnnotation(PVD, "julia_maybe_unrooted");
-      bool maybeUnpinned = declHasAnnotation(PVD, "julia_maybe_unpinned");
-      if (!isFunctionSafepoint || maybeUnrooted || maybeUnpinned) {
+      if (!isFunctionSafepoint || maybeUnrooted) {
         ValueState VS = getAllocated();
         VS.PVD = PVD;
         VS.FD = FD;
         return VS;
       }
       bool require_tpin = declHasAnnotation(PVD, "julia_require_tpin");
+      bool require_pin = declHasAnnotation(PVD, "julia_require_pin");
       if (require_tpin) {
         return getRooted(nullptr, ValueState::TransitivelyPinned, -1);
-      } else {
-        // Assume arguments are pinned
+      } else if (require_pin) {
         return getRooted(nullptr, ValueState::Pinned, -1);
+      } else {
+        return getRooted(nullptr, ValueState::NotPinned, -1);
       }
     }
   };
@@ -339,6 +347,7 @@ private:
   void validateValue(const GCChecker::ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message) const;
   void validateValueRootnessOnly(const GCChecker::ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message) const;
   void validateValue(const GCChecker::ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message, SourceRange range) const;
+  void validateValueRootnessOnly(const GCChecker::ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message, SourceRange range) const;
   int validateValueInner(const GCChecker::ValueState* VS) const;
   GCChecker::ValueState getRootedFromRegion(const MemRegion *Region, const PinState *PS, int Depth) const;
   template <typename T>
@@ -474,6 +483,15 @@ static const VarRegion *walk_back_to_global_VR(const MemRegion *Region) {
 #define VALID 0
 #define FREED 1
 #define MOVED 2
+
+void GCChecker::validateValueRootnessOnly(const ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message, SourceRange range) const {
+  int v = validateValueInner(VS);
+  if (v == FREED) {
+    GCChecker::report_value_error(C, Sym, (std::string(message) + " GCed").c_str(), range);
+  } else if (v == MOVED) {
+    // We don't care if it is moved
+  }
+}
 
 void GCChecker::validateValue(const ValueState* VS, CheckerContext &C, SymbolRef Sym, const char *message, SourceRange range) const {
   int v = validateValueInner(VS);
@@ -1133,10 +1151,10 @@ bool GCChecker::processPotentialSafepoint(const CallEvent &Call,
   // Symbolically move all unpinned values.
   GCValueMapTy AMap2 = State->get<GCValueMap>();
   for (auto I = AMap2.begin(), E = AMap2.end(); I != E; ++I) {
+    logWithDump("- check Sym", I.getKey());
     if (RetSym == I.getKey())
       continue;
     if (I.getData().isNotPinned()) {
-      logWithDump("- move unpinned values, Sym", I.getKey());
       logWithDump("- move unpinned values, VS", I.getData());
       auto NewVS = ValueState::getMoved(I.getData());
       State = State->set<GCValueMap>(I.getKey(), NewVS);
@@ -1189,9 +1207,9 @@ bool GCChecker::processArgumentRooting(const CallEvent &Call, CheckerContext &C,
   const ValueState *CurrentVState = State->get<GCValueMap>(RootedSymbol);
   ValueState NewVState = *OldVState;
   // If the old state is pinned, the new state is not pinned.
-  if (OldVState->isPinned() && ((CurrentVState && !CurrentVState->isPinnedByAnyway()) || !CurrentVState)) {
-    NewVState = ValueState::getNotPinned(*OldVState);
-  }
+  // if (OldVState->isPinned() && ((CurrentVState && !CurrentVState->isPinnedByAnyway()) || !CurrentVState)) {
+  //   NewVState = ValueState::getNotPinned(*OldVState);
+  // }
   logWithDump("- Rooted set to", NewVState);
   State = State->set<GCValueMap>(RootedSymbol, NewVState);
   return true;
@@ -1627,21 +1645,14 @@ void GCChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
             range);
       }
     }
-    if (ValState->isNotPinned()) {
-      bool MaybeUnpinned = false;
-      if (FD) {
-        if (idx < FD->getNumParams()) {
-          MaybeUnpinned =
-              declHasAnnotation(FD->getParamDecl(idx), "julia_maybe_unpinned");
-        }
-      }
-      if (!MaybeUnpinned && isCalleeSafepoint) {
-        report_value_error(C, Sym, "Passing non-pinned value as argument to function that may GC", range);
-      }
-    }
     if (FD && idx < FD->getNumParams() && declHasAnnotation(FD->getParamDecl(idx), "julia_require_tpin")) {
       if (!ValState->isTransitivelyPinned()) {
         report_value_error(C, Sym, "Passing non-tpinned argument to function that requires a tpin argument.");
+      }
+    }
+    if (FD && idx < FD->getNumParams() && declHasAnnotation(FD->getParamDecl(idx), "julia_require_pin")) {
+      if (!ValState->isPinnedByAnyway()) {
+        report_value_error(C, Sym, "Passing non-pinned argument to function that requires a pin argument.");
       }
     }
   }
@@ -1673,12 +1684,20 @@ bool GCChecker::evalCall(const CallEvent &Call, CheckerContext &C) const {
         PoppedRoots.push_back(I.getKey());
         State = State->remove<GCRootMap>(I.getKey());
         State = State->remove<GCPinMap>(I.getKey());
+        logWithDump("- pop root", I.getKey());
       }
     }
+    log("- Iterate value map");
     GCValueMapTy VMap = State->get<GCValueMap>();
     for (const MemRegion *R : PoppedRoots) {
+      logWithDump("-- check popped root", R);
       for (auto I = VMap.begin(), E = VMap.end(); I != E; ++I) {
+        logWithDump("--- check value", I.getKey());
+        logWithDump("--- check state", I.getData());
+        // FIXME: If this is a pop for TPin frame, we should remove TPin as well.
+        // For any region that is reachable from R, its pinning state should be reset.
         if (I.getData().isRootedBy(R)) {
+          logWithDump("--- no longer rooted", ValueState::getAllocated());
           State =
               State->set<GCValueMap>(I.getKey(), ValueState::getAllocated());
         }
@@ -1707,11 +1726,17 @@ bool GCChecker::evalCall(const CallEvent &Call, CheckerContext &C) const {
         return true;
       }
       const MemRegion *Region = MRV->getRegion();
-      State = State->set<GCRootMap>(Region, RootState::getRoot(CurrentDepth));
+      RootState RS = RootState::getRoot(CurrentDepth);
+      State = State->set<GCRootMap>(Region, RS);
+      logWithDump("- JL_GC_PUSH, Region", Region);
+      logWithDump("- JL_GC_PUSH, RS", RS);
+      PinState PS = PinState::getNoPin(-1);
       if (tpin)
-        State = State->set<GCPinMap>(Region, PinState::getTransitivePin(CurrentDepth));
+        PS = PinState::getTransitivePin(CurrentDepth);
       else
-        State = State->set<GCPinMap>(Region, PinState::getPin(CurrentDepth));
+        PS = PinState::getPin(CurrentDepth);
+      State = State->set<GCPinMap>(Region, PS);
+      logWithDump("- JL_GC_PUSH, PS", PS);
       // Now for the value
       SVal Value = State->getSVal(Region);
       SymbolRef Sym = Value.getAsSymbol();
@@ -1730,6 +1755,8 @@ bool GCChecker::evalCall(const CallEvent &Call, CheckerContext &C) const {
       else
         VS = ValueState::getPinned(VS);
       State = State->set<GCValueMap>(Sym, VS);
+      logWithDump("- JL_GC_PUSH, Sym", Sym);
+      logWithDump("- JL_GC_PUSH, VS", VS);
     }
     CurrentDepth += 1;
     State = State->set<GCDepth>(CurrentDepth);
@@ -1788,6 +1815,7 @@ bool GCChecker::evalCall(const CallEvent &Call, CheckerContext &C) const {
     }
 
     const ValueState *OldVS = C.getState()->get<GCValueMap>(Sym);
+    logWithDump("- PTR_PIN OldVS", OldVS);
     if (OldVS && OldVS->isMoved()) {
       report_error(C, "Attempt to PIN a value that is already moved.");
       return true;

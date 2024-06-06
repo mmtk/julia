@@ -1,12 +1,12 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
-// RUN: clang -D__clang_gcanalyzer__ --analyze -Xanalyzer -analyzer-output=text -Xclang -load -Xclang libGCCheckerPlugin%shlibext -I%julia_home/src -I%julia_home/src/support -I%julia_home/usr/include ${CLANGSA_FLAGS} ${CLANGSA_CXXFLAGS} ${CPPFLAGS} ${CFLAGS} -Xclang -analyzer-checker=core,julia.GCChecker --analyzer-no-default-checks -Xclang -verify -x c %s
+// RUN: clang -D__clang_gcanalyzer__ --analyze -Xanalyzer -analyzer-output=text -Xclang -load -Xclang libGCCheckerPlugin%shlibext -I%julia_home/src -I%julia_home/src/support -I%julia_home/usr/include ${CLANGSA_FLAGS} ${CPPFLAGS} ${CFLAGS} -Xclang -analyzer-checker=core,julia.GCChecker --analyzer-no-default-checks -Xclang -verify -x c %s
 
 #include "julia.h"
 #include "julia_internal.h"
 
 extern void look_at_value(jl_value_t *v);
-extern void process_unrooted(jl_value_t *maybe_unrooted JL_MAYBE_UNROOTED JL_MAYBE_UNPINNED);
+extern void process_unrooted(jl_value_t *maybe_unrooted JL_MAYBE_UNROOTED);
 extern void jl_gc_safepoint();
 
 void unrooted_argument() {
@@ -181,18 +181,16 @@ void globally_rooted() {
 }
 
 extern jl_value_t *first_array_elem(jl_array_t *a JL_PROPAGATES_ROOT);
-
 void root_propagation(jl_expr_t *expr) {
-  PTR_PIN(expr->args);
   jl_value_t *val = first_array_elem(expr->args);
-  PTR_UNPIN(expr->args);
   PTR_PIN(val);
   jl_gc_safepoint();
-  look_at_value(val);
   PTR_UNPIN(val);
+  look_at_value(val);
 }
 
 void argument_propagation(jl_value_t *a) {
+  PTR_PIN(a);
   jl_svec_t *types = jl_svec2(NULL, NULL);
   JL_GC_PUSH1(&types);
   jl_value_t *val = jl_svecset(types, 0, jl_typeof(a));
@@ -200,19 +198,20 @@ void argument_propagation(jl_value_t *a) {
   look_at_value(val);
   jl_svecset(types, 1, jl_typeof(a));
   JL_GC_POP();
+  PTR_UNPIN(a);
 }
 
 // New value creation via []
 void arg_array(jl_value_t **args) {
+  PTR_PIN(args[1]);
   jl_gc_safepoint();
   jl_value_t *val = args[1];
-  PTR_PIN(val);
   look_at_value(val);
-  PTR_UNPIN(val);
   jl_value_t *val2 = NULL;
   JL_GC_PUSH1(&val2);
   val2 = val;
   JL_GC_POP();
+  PTR_UNPIN(args[1]);
 }
 
 // New value creation via ->
@@ -246,7 +245,7 @@ void pushargs_as_args()
   JL_GC_POP();
 }
 
-static jl_typemap_entry_t *this_call_cache[10] JL_GLOBALLY_ROOTED JL_GLOBALLY_TPINNED;
+static jl_typemap_entry_t *this_call_cache[10] JL_GLOBALLY_ROOTED;
 void global_array2() {
   jl_value_t *val = NULL;
   JL_GC_PUSH1(&val);
@@ -267,9 +266,7 @@ void nonconst_loads(jl_svec_t *v)
     size_t i = jl_svec_len(v);
     jl_method_instance_t **data = (jl_method_instance_t**)jl_svec_data(v);
     jl_method_instance_t *mi = data[i];
-    PTR_PIN(mi->specTypes);
     look_at_value(mi->specTypes);
-    PTR_UNPIN(mi->specTypes);
 }
 
 void nonconst_loads2()
@@ -294,6 +291,7 @@ void mtable(jl_value_t *f) {
   JL_GC_PUSH1(&val);
   val = mtable;
   JL_GC_POP();
+  PTR_UNPIN(mtable);
 }
 
 void mtable2(jl_value_t **v) {
@@ -304,18 +302,15 @@ void mtable2(jl_value_t **v) {
 }
 
 void tparam0(jl_value_t *atype) {
-    jl_value_t *param0 = jl_tparam0(atype);
-    PTR_PIN(param0);
-    look_at_value(param0);
-    PTR_UNPIN(param0);
+   look_at_value(jl_tparam0(atype));
 }
 
-extern jl_value_t *global_atype JL_GLOBALLY_ROOTED JL_GLOBALLY_TPINNED;
+extern jl_value_t *global_atype JL_GLOBALLY_ROOTED;
 void tparam0_global() {
    look_at_value(jl_tparam0(global_atype));
 }
 
-static jl_value_t *some_global JL_GLOBALLY_ROOTED JL_GLOBALLY_PINNED;
+static jl_value_t *some_global JL_GLOBALLY_ROOTED;
 void global_copy() {
     jl_value_t *local = NULL;
     jl_gc_safepoint();
@@ -342,6 +337,7 @@ void scopes() {
 jl_module_t *propagation(jl_module_t *m JL_PROPAGATES_ROOT);
 void module_member(jl_module_t *m)
 {
+    PTR_PIN(m);
     for(int i=(int)m->usings.len-1; i >= 0; --i) {
       jl_module_t *imp = propagation(m);
       PTR_PIN(imp);
@@ -357,6 +353,7 @@ void module_member(jl_module_t *m)
       look_at_value((jl_value_t*)imp);
       JL_GC_POP();
     }
+    PTR_UNPIN(m);
 }
 
 int type_type(jl_value_t *v) {
@@ -371,7 +368,11 @@ void assoc_exact_broken(jl_value_t **args, size_t n, int8_t offs, size_t world) 
 */
 
 void assoc_exact_ok(jl_value_t *args1, jl_value_t **args, size_t n, int8_t offs, size_t world) {
+    PTR_PIN(args1);
+    PTR_PIN(args);
     jl_typemap_level_t *cache = jl_new_typemap_level();
+    PTR_UNPIN(args1);
+    PTR_UNPIN(args);
     JL_GC_PUSH1(&cache);
     jl_typemap_assoc_exact(cache->any, args1, args, n, offs, world);
     JL_GC_POP();
