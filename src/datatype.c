@@ -276,6 +276,10 @@ static jl_datatype_layout_t *jl_get_layout(uint32_t sz,
     if ((void*)ret == HT_NOTFOUND) {
         if (!should_malloc) {
             char *perm_mem = (char *)jl_gc_perm_alloc(flddesc_sz, 0, 4, 0);
+#ifdef MMTK_GC
+            jl_ptls_t ptls = jl_current_task->ptls;
+            mmtk_immortal_post_alloc_fast(&ptls->mmtk_mutator, jl_valueof(perm_mem), flddesc_sz);
+#endif
             assert(perm_mem);
             ret = (jl_datatype_layout_t *)perm_mem;
             memcpy(perm_mem, flddesc, flddesc_sz);
@@ -815,6 +819,10 @@ JL_DLLEXPORT jl_datatype_t * jl_new_foreign_type(jl_sym_t *name,
     jl_datatype_layout_t *layout = (jl_datatype_layout_t *)
       jl_gc_perm_alloc(sizeof(jl_datatype_layout_t) + sizeof(jl_fielddescdyn_t),
         0, 4, 0);
+#ifdef MMTK_GC
+    jl_ptls_t ptls = jl_current_task->ptls;
+    mmtk_immortal_post_alloc_fast(&ptls->mmtk_mutator, jl_valueof(layout), sizeof(jl_datatype_layout_t) + sizeof(jl_fielddescdyn_t));
+#endif
     layout->size = large ? GC_MAX_SZCLASS+1 : 0;
     layout->nfields = 0;
     layout->alignment = sizeof(void *);

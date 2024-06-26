@@ -2438,8 +2438,11 @@ extern JL_DLLEXPORT int jl_default_debug_info_kind;
 extern void mmtk_object_reference_write_post(void* mutator, const void* parent, const void* ptr);
 extern void mmtk_object_reference_write_slow(void* mutator, const void* parent, const void* ptr);
 extern void* mmtk_alloc(void* mutator, size_t size, size_t align, size_t offset, int allocator);
+extern void mmtk_post_alloc(void* mutator, void* refer, size_t bytes, int allocator);
+
 
 extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
+extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
 
 // These need to be constants.
 
@@ -2450,6 +2453,12 @@ extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
 #endif
 #ifdef MMTK_PLAN_STICKYIMMIX
 #define MMTK_NEEDS_WRITE_BARRIER (1)
+#endif
+
+#ifdef MMTK_CONSERVATIVE_SCAN
+#define MMTK_NEEDS_VO_BIT (1)
+#else
+#define MMTK_NEEDS_VO_BIT (0)
 #endif
 
 #define MMTK_DEFAULT_IMMIX_ALLOCATOR (0)
@@ -2526,8 +2535,19 @@ STATIC_INLINE void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t si
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 0);
 }
 
+STATIC_INLINE void mmtk_immix_post_alloc_slow(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    mmtk_post_alloc(mutator, obj, size, 0);
+}
+
 STATIC_INLINE void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    // We do not need post alloc for immix objects in immix/stickyimmix
+    // set up the VO bit
+    if (MMTK_NEEDS_VO_BIT) {
+        intptr_t addr = (intptr_t) obj;
+        intptr_t shift = (addr >> 3) & 0b111;
+        uint8_t* vo_meta_addr = (uint8_t*) (MMTK_SIDE_VO_BIT_BASE_ADDRESS) + (addr >> 6);
+        uint8_t new_val = (*vo_meta_addr) | (1 << shift);
+        (*vo_meta_addr) = new_val;
+    }
 }
 
 STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
@@ -2536,10 +2556,17 @@ STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t
 }
 
 STATIC_INLINE void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    intptr_t addr = (intptr_t) obj;
+    intptr_t shift = (addr >> 3) & 0b111;
+    // set VO bit
+    if (MMTK_NEEDS_VO_BIT) {
+        uint8_t* vo_meta_addr = (uint8_t*) (MMTK_SIDE_VO_BIT_BASE_ADDRESS) + (addr >> 6);
+        uint8_t new_val = (*vo_meta_addr) | (1 << shift);
+        (*vo_meta_addr) = new_val;
+    }
+
     if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
-        intptr_t addr = (intptr_t) obj;
         uint8_t* meta_addr = (uint8_t*) (MMTK_SIDE_LOG_BIT_BASE_ADDRESS) + (addr >> 6);
-        intptr_t shift = (addr >> 3) & 0b111;
         while(1) {
             uint8_t old_val = *meta_addr;
             uint8_t new_val = old_val | (1 << shift);

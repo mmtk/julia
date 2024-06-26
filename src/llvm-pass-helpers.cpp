@@ -341,6 +341,7 @@ namespace jl_well_known {
     static const char *GC_WB_BINDING_NAME = XSTR(jl_gc_wb_binding_noinline);
     static const char *GC_WB_1_SLOW_NAME = XSTR(jl_gc_wb1_slow);
     static const char *GC_WB_2_SLOW_NAME = XSTR(jl_gc_wb2_slow);
+    static const char *GC_POST_ALLOC_SLOW_NAME = XSTR(jl_gc_post_alloc_slow);
 #endif
 
     static auto T_size_t(const JuliaPassContext &context) {
@@ -525,6 +526,20 @@ namespace jl_well_known {
                     false),
                 Function::ExternalLinkage,
                 GC_WB_2_SLOW_NAME);
+            func->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
+            return func;
+    });
+
+     const WellKnownFunctionDescription GCPostAllocSlow (
+        GC_POST_ALLOC_SLOW_NAME,
+        [](const JuliaPassContext &context) {
+            auto func = Function::Create(
+                FunctionType::get(
+                    Type::getVoidTy(context.getLLVMContext()),
+                    { context.T_prjlvalue, Type::getInt32Ty(context.getLLVMContext()) },
+                    false),
+                Function::ExternalLinkage,
+                GC_POST_ALLOC_SLOW_NAME);
             func->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
             return func;
     });

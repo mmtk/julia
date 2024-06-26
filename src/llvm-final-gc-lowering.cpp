@@ -59,6 +59,7 @@ private:
     Function *writeBarrierBindingFunc;
     Function *writeBarrier1SlowFunc;
     Function *writeBarrier2SlowFunc;
+    Function *postAllocSlowFunc;
 #endif
     Instruction *pgcstack;
 
@@ -373,6 +374,45 @@ Value *FinalLowerGC::lowerGCAllocBytes(CallInst *target, Function &F)
 
                 auto v_raw = builder.CreateNSWAdd(result, ConstantInt::get(Type::getInt64Ty(target->getContext()), sizeof(jl_taggedvalue_t)));
                 auto v_as_ptr = builder.CreateIntToPtr(v_raw, poolAllocFunc->getReturnType());
+
+                if (MMTK_NEEDS_VO_BIT) {
+                    // Should we generate fastpath post alloc sequence here?
+                    // Setting this to false will increase allocation overhead a lot, and should only be used for debugging.
+                    const bool INLINE_FASTPATH_POST_ALLOCATION = true;
+
+                    // set VO bit
+                    if (INLINE_FASTPATH_POST_ALLOCATION) {
+                        auto intptr_ty = Type::getInt64Ty(target->getContext());
+                        auto i8_ty = Type::getInt8Ty(F.getContext());
+                        intptr_t metadata_base_address = reinterpret_cast<intptr_t>(MMTK_SIDE_VO_BIT_BASE_ADDRESS);
+                        auto metadata_base_val = ConstantInt::get(intptr_ty, metadata_base_address);
+                        auto metadata_base_ptr = ConstantExpr::getIntToPtr(metadata_base_val, PointerType::get(i8_ty, 0));
+
+                        // intptr_t addr = (intptr_t) v;
+                        auto addr = v_raw;
+
+                        // uint8_t* vo_meta_addr = (uint8_t*) (MMTK_SIDE_VO_BIT_BASE_ADDRESS) + (addr >> 6);
+                        auto shr = builder.CreateLShr(addr, ConstantInt::get(intptr_ty, 6));
+                        auto metadata_ptr = builder.CreateGEP(i8_ty, metadata_base_ptr, shr);
+
+                        // intptr_t shift = (addr >> 3) & 0b111;
+                        auto shift = builder.CreateAnd(builder.CreateLShr(addr, ConstantInt::get(intptr_ty, 3)), ConstantInt::get(intptr_ty, 7));
+
+                        // uint8_t byte_val = *vo_meta_addr;
+                        auto byte_val = builder.CreateAlignedLoad(i8_ty, metadata_ptr, Align());
+
+                        // uint8_t new_val = byte_val | (1 << shift);
+                        auto shifted_val = builder.CreateShl(ConstantInt::get(intptr_ty, 1), shift);
+                        auto shifted_val_i8 = builder.CreateTruncOrBitCast(shifted_val, i8_ty);
+                        auto new_val = builder.CreateOr(byte_val, shifted_val_i8);
+
+                        // (*vo_meta_addr) = new_val;
+                        builder.CreateStore(new_val, metadata_ptr);
+                    } else {
+                        builder.CreateCall(postAllocSlowFunc, { v_as_ptr, pool_osize_i32 });
+                    }
+                }
+
                 builder.CreateBr(top_cont);
 
                 phiNode->addIncoming(new_call, slowpath);
@@ -416,7 +456,8 @@ bool FinalLowerGC::doInitialization(Module &M) {
     writeBarrierBindingFunc = getOrDeclare(jl_well_known::GCWriteBarrierBinding);
     writeBarrier1SlowFunc = getOrDeclare(jl_well_known::GCWriteBarrier1Slow);
     writeBarrier2SlowFunc = getOrDeclare(jl_well_known::GCWriteBarrier2Slow);
-    GlobalValue *functionList[] = {queueRootFunc, poolAllocFunc, bigAllocFunc, gcPreserveBeginHookFunc, gcPreserveEndHookFunc, writeBarrier1Func, writeBarrier2Func, writeBarrierBindingFunc, writeBarrier1SlowFunc, writeBarrier2SlowFunc};
+    postAllocSlowFunc = getOrDeclare(jl_well_known::GCPostAllocSlow);
+    GlobalValue *functionList[] = {queueRootFunc, poolAllocFunc, bigAllocFunc, gcPreserveBeginHookFunc, gcPreserveEndHookFunc, writeBarrier1Func, writeBarrier2Func, writeBarrierBindingFunc, writeBarrier1SlowFunc, writeBarrier2SlowFunc, postAllocSlowFunc};
 #else
     GlobalValue *functionList[] = {queueRootFunc, queueBindingFunc, poolAllocFunc, bigAllocFunc, allocTypedFunc};
 #endif
@@ -436,8 +477,8 @@ bool FinalLowerGC::doInitialization(Module &M) {
 bool FinalLowerGC::doFinalization(Module &M)
 {
 #ifdef MMTK_GC
-    GlobalValue *functionList[] = {queueRootFunc, poolAllocFunc, bigAllocFunc, gcPreserveBeginHookFunc, gcPreserveEndHookFunc, writeBarrier1Func, writeBarrier2Func, writeBarrierBindingFunc, writeBarrier1SlowFunc, writeBarrier2SlowFunc};
-    queueRootFunc = poolAllocFunc = bigAllocFunc = gcPreserveBeginHookFunc = gcPreserveEndHookFunc = writeBarrier1Func = writeBarrier2Func = writeBarrierBindingFunc = writeBarrier1SlowFunc = writeBarrier2SlowFunc = nullptr;
+    GlobalValue *functionList[] = {queueRootFunc, poolAllocFunc, bigAllocFunc, gcPreserveBeginHookFunc, gcPreserveEndHookFunc, writeBarrier1Func, writeBarrier2Func, writeBarrierBindingFunc, writeBarrier1SlowFunc, writeBarrier2SlowFunc, postAllocSlowFunc};
+    queueRootFunc = poolAllocFunc = bigAllocFunc = gcPreserveBeginHookFunc = gcPreserveEndHookFunc = writeBarrier1Func = writeBarrier2Func = writeBarrierBindingFunc = writeBarrier1SlowFunc = writeBarrier2SlowFunc = postAllocSlowFunc = nullptr;
 #else
     GlobalValue *functionList[] = {queueRootFunc, queueBindingFunc, poolAllocFunc, bigAllocFunc, allocTypedFunc};
     queueRootFunc = queueBindingFunc = poolAllocFunc = bigAllocFunc = allocTypedFunc = nullptr;

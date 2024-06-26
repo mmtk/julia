@@ -3578,6 +3578,11 @@ JL_DLLEXPORT jl_value_t *jl_gc_internal_obj_base_ptr(void *p)
     return NULL;
 }
 
+JL_DLLEXPORT void jl_gc_post_alloc_slow(void* obj, int size) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
 JL_DLLEXPORT void jl_gc_wb1_noinline(const void *parent) JL_NOTSAFEPOINT
 {
     jl_unreachable();

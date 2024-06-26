@@ -177,6 +177,7 @@ namespace jl_well_known {
     extern const WellKnownFunctionDescription GCWriteBarrierBinding;
     extern const WellKnownFunctionDescription GCWriteBarrier1Slow;
     extern const WellKnownFunctionDescription GCWriteBarrier2Slow;
+    extern const WellKnownFunctionDescription GCPostAllocSlow;
 #endif
 }
 

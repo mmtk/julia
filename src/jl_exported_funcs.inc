@@ -198,6 +198,7 @@
     XX(jl_gc_wb_binding_noinline) \
     XX(jl_gc_wb1_slow) \
     XX(jl_gc_wb2_slow) \
+    XX(jl_gc_post_alloc_slow) \
     XX(jl_gc_safepoint) \
     XX(jl_gc_schedule_foreign_sweepfunc) \
     XX(jl_gc_set_cb_notify_external_alloc) \

@@ -647,6 +647,12 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
     mmtk_object_reference_write_slow(&ptls->mmtk_mutator, parent, ptr);
 }
 
+JL_DLLEXPORT void jl_gc_post_alloc_slow(void* obj, int size) JL_NOTSAFEPOINT {
+    jl_task_t *ct = jl_current_task;
+    jl_ptls_t ptls = ct->ptls;
+    mmtk_immix_post_alloc_slow(&ptls->mmtk_mutator, obj, size);
+}
+
 void *jl_gc_perm_alloc_nolock(size_t sz, int zero, unsigned align, unsigned offset)
 {
     jl_ptls_t ptls = jl_current_task->ptls;
