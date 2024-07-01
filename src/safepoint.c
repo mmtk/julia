@@ -158,6 +158,27 @@ void jl_safepoint_end_gc(void)
 
 void jl_safepoint_wait_gc(void)
 {
+    {
+        pthread_attr_t attr;
+        size_t stack_size;
+        void *stack_addr;
+
+        pthread_t thread = pthread_self();
+
+        if (pthread_getattr_np(thread, &attr) != 0) {
+            perror("pthread_getattr_np");
+            exit(EXIT_FAILURE);
+        }
+
+        if (pthread_attr_getstack(&attr, &stack_addr, &stack_size) != 0) {
+            perror("pthread_attr_getstack");
+            exit(EXIT_FAILURE);
+        }
+
+        printf("Thread blocked in C: thread %lx, stack %p, stack size %ld", thread, stack_addr, stack_size);
+
+        pthread_attr_destroy(&attr);
+    }
     // The thread should have set this is already
     assert(jl_atomic_load_relaxed(&jl_current_task->ptls->gc_state) != 0);
     // Use normal volatile load in the loop for speed until GC finishes.

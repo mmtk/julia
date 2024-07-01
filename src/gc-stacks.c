@@ -56,6 +56,7 @@ static void *malloc_stack(size_t bufsz) JL_NOTSAFEPOINT
     if (stk == MAP_FAILED)
         return MAP_FAILED;
 #if !defined(JL_HAVE_UCONTEXT) && !defined(JL_HAVE_SIGALTSTACK)
+    printf("Set up guard page: %p to %p\n", stk, (char*)stk + jl_guard_size); fflush(stdout);
     // setup a guard page to detect stack overflow
     if (mprotect(stk, jl_guard_size, PROT_NONE) == -1) {
         munmap(stk, bufsz);

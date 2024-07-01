@@ -747,11 +747,14 @@ JCFLAGS += -DGC_FIXED_HEAP
 endif
 
 ifeq ($(WITH_MMTK), 1)
+
 ifeq (${MMTK_JULIA_DIR},)
 $(error MMTK_JULIA_DIR must be set to use MMTk)
 endif
+
 JCXXFLAGS += -DMMTK_GC
 JCFLAGS += -DMMTK_GC
+
 ifeq (${MMTK_BUILD},)
 ifeq (debug,$(findstring debug,$(MAKECMDGOALS)))
 MMTK_BUILD = debug
@@ -759,26 +762,37 @@ else
 MMTK_BUILD = release
 endif
 endif
+
 ifeq (${MMTK_PLAN},Immix)
 JCXXFLAGS += -DMMTK_PLAN_IMMIX
 JCFLAGS += -DMMTK_PLAN_IMMIX
 endif
+
 ifeq (${MMTK_PLAN},StickyImmix)
 JCXXFLAGS += -DMMTK_PLAN_STICKYIMMIX
 JCFLAGS += -DMMTK_PLAN_STICKYIMMIX
 endif
+
 MMTK_DIR = ${MMTK_JULIA_DIR}/mmtk
 MMTK_API_INC = $(MMTK_DIR)/api
 MMTK_JULIA_INC = ${MMTK_JULIA_DIR}/julia
+
 ifeq ($(OS),Linux)
 MMTK_LIB_NAME := libmmtk_julia.so
 else
 $(error "Unsupported OS for MMTk")
 endif
+
 MMTK_LIB_SRC := $(MMTK_DIR)/target/$(MMTK_BUILD)/$(MMTK_LIB_NAME)
 MMTK_LIB_DST := $(BUILDROOT)/usr/lib/$(MMTK_LIB_NAME)
 MMTK_LIB := -lmmtk_julia
 LDFLAGS += -Wl,-rpath=$(BUILDROOT)/usr/lib/ -L$(BUILDROOT)/usr/lib/
+
+ifeq (${MMTK_TPIN_ROOTS}, 1)
+JCXXFLAGS += -DMMTK_TPIN_ROOTS
+JCFLAGS += -DMMTK_TPIN_ROOTS
+endif
+
 else
 MMTK_JULIA_INC :=
 MMTK_LIB :=
