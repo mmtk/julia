@@ -23,7 +23,7 @@ int allow_unpinned() {
 void pinned_argument() {
     jl_svec_t *val = jl_svec1(NULL);
     JL_GC_PROMISE_ROOTED(val);
-    PTR_PIN(val);
+    OBJ_PIN(val);
     look_at_value((jl_value_t*) val);
     PTR_UNPIN(val);
 }
@@ -40,7 +40,7 @@ void pin_after_safepoint() {
     jl_svec_t *val = jl_svec1(NULL);
     JL_GC_PROMISE_ROOTED(val);
     jl_gc_safepoint();
-    PTR_PIN(val); // expected-warning{{Attempt to PIN a value that is already moved}}
+    OBJ_PIN(val); // expected-warning{{Attempt to PIN a value that is already moved}}
                   // expected-note@-1{{Attempt to PIN a value that is already moved}}
     look_at_value((jl_value_t*) val);
 }
@@ -48,7 +48,7 @@ void pin_after_safepoint() {
 void proper_pin_before_safepoint() {
     jl_svec_t *val = jl_svec1(NULL);
     JL_GC_PROMISE_ROOTED(val);
-    PTR_PIN(val);
+    OBJ_PIN(val);
     jl_gc_safepoint();
     look_at_value((jl_value_t*) val);
     PTR_UNPIN(val);
@@ -87,7 +87,7 @@ void pointer_to_pointer2(jl_value_t* u, jl_value_t **v) {
 extern jl_value_t *first_array_elem(jl_array_t *a JL_PROPAGATES_ROOT);
 
 void root_propagation(jl_expr_t *expr) {
-  PTR_PIN(expr->args);
+  OBJ_PIN(expr->args);
   jl_value_t *val = first_array_elem(expr->args); // expected-note{{Started tracking value here}}
   PTR_UNPIN(expr->args);
   jl_gc_safepoint();
@@ -98,13 +98,13 @@ void root_propagation(jl_expr_t *expr) {
 void derive_ptr_alias(jl_method_instance_t *mi) {
   jl_value_t* a = mi->specTypes;
   jl_value_t* b = mi->specTypes;
-  PTR_PIN(a);
+  OBJ_PIN(a);
   look_at_value(b);
   PTR_UNPIN(a);
 }
 
 void derive_ptr_alias2(jl_method_instance_t *mi) {
-  PTR_PIN(mi->specTypes);
+  OBJ_PIN(mi->specTypes);
   look_at_value(mi->specTypes);
   PTR_UNPIN(mi->specTypes);
 }
@@ -113,13 +113,13 @@ void derive_ptr_alias2(jl_method_instance_t *mi) {
 // It pins the first return value, but cannot see the second return value is an alias of the first.
 // However, we could rewrite the code so the checker can check it.
 // void mtable(jl_value_t *f) {
-//   PTR_PIN((jl_value_t*)jl_gf_mtable(f));
+//   OBJ_PIN((jl_value_t*)jl_gf_mtable(f));
 //   look_at_value((jl_value_t*)jl_gf_mtable(f));
 // }
 
 void mtable(jl_value_t *f) {
     jl_value_t* mtable = (jl_value_t*)jl_gf_mtable(f);
-    PTR_PIN(mtable);
+    OBJ_PIN(mtable);
     look_at_value(mtable);
     PTR_UNPIN(mtable);
 }
@@ -152,8 +152,8 @@ void rebind_tpin(jl_method_instance_t *mi, size_t world) {
     jl_value_t *ci = jl_rettype_inferred(mi, world, world);
     jl_code_instance_t *codeinst = (ci == jl_nothing ? NULL : (jl_code_instance_t*)ci);
     if (codeinst) {
-        PTR_PIN(mi->def.method);
-        PTR_PIN(codeinst);
+        OBJ_PIN(mi->def.method);
+        OBJ_PIN(codeinst);
         src = (jl_code_info_t*)jl_atomic_load_relaxed(&codeinst->inferred);
         src = jl_uncompress_ir(mi->def.method, codeinst, (jl_array_t*)src);
         PTR_UNPIN(codeinst);

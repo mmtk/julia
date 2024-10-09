@@ -295,6 +295,9 @@ static Value *julia_pgv(jl_codectx_t &ctx, const char *cname, void *addr)
     // emit a GlobalVariable for a jl_value_t named "cname"
     // store the name given so we can reuse it (facilitating merging later)
     // so first see if there already is a GlobalVariable for this address
+
+    // This will be stored in the native heap. We need to pin it.
+    OBJ_PIN(addr);
     GlobalVariable* &gv = ctx.global_targets[addr];
     Module *M = jl_Module;
     StringRef localname;
@@ -474,7 +477,7 @@ static Value *literal_pointer_val(jl_codectx_t &ctx, jl_value_t *p)
     if (!ctx.emission_context.imaging)
         // literal_static_pointer_val will pin p.
         return literal_static_pointer_val(p, ctx.types().T_pjlvalue);
-    PTR_PIN(p);
+    OBJ_PIN(p);
     Value *pgv = literal_pointer_val_slot(ctx, p);
     jl_aliasinfo_t ai = jl_aliasinfo_t::fromTBAA(ctx, ctx.tbaa().tbaa_const);
     return ai.decorateInst(maybe_mark_load_dereferenceable(
@@ -491,7 +494,7 @@ static Value *literal_pointer_val(jl_codectx_t &ctx, jl_binding_t *p)
     if (!ctx.emission_context.imaging)
         // literal_static_pointer_val will pin p.
         return literal_static_pointer_val(p, ctx.types().T_pjlvalue);
-    PTR_PIN(p);
+    OBJ_PIN(p);
     // bindings are prefixed with jl_bnd#
     Value *pgv = julia_pgv(ctx, "jl_bnd#", p->name, p->owner, p);
     jl_aliasinfo_t ai = jl_aliasinfo_t::fromTBAA(ctx, ctx.tbaa().tbaa_const);

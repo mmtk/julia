@@ -29,6 +29,9 @@ JL_DLLEXPORT void jl_gc_set_cb_notify_external_alloc(jl_gc_cb_notify_external_al
 JL_DLLEXPORT void jl_gc_set_cb_notify_external_free(jl_gc_cb_notify_external_free_t cb, int enable)
 {
 }
+JL_DLLEXPORT void jl_gc_set_cb_notify_gc_pressure(jl_gc_cb_notify_gc_pressure_t cb, int enable)
+{
+}
 JL_DLLEXPORT int64_t jl_gc_pool_live_bytes(void)
 {
     mmtk_unreachable();
@@ -489,7 +492,7 @@ jl_value_t *jl_gc_realloc_string(jl_value_t *s, size_t sz)
     size_t len = jl_string_len(s);
     jl_value_t *snew = jl_alloc_string(sz);
     memcpy(jl_string_data(snew), jl_string_data(s), sz <= len ? sz : len);
-    if(mmtk_is_pinned(s)) {
+    if(mmtk_is_object_pinned(s)) {
         // if the source string was pinned, we also pin the new one
         mmtk_pin_object(snew);
     }
@@ -674,6 +677,13 @@ void jl_gc_notify_image_load(const char* img_data, size_t len)
 void jl_gc_notify_image_alloc(char* img_data, size_t len)
 {
     mmtk_immortal_region_post_alloc((void*)img_data, len);
+}
+
+JL_DLLEXPORT void jl_gc_pin(jl_value_t* obj)
+{
+    if (obj) {
+        mmtk_pin_object(obj);
+    }
 }
 
 #ifdef __cplusplus

@@ -67,7 +67,7 @@ JL_DLLEXPORT jl_typename_t *jl_new_typename_in(jl_sym_t *name, jl_module_t *modu
                                     jl_typename_type);
     // Typenames should be pinned since they are used as metadata, and are
     // read during scan_object
-    PTR_PIN(tn);
+    OBJ_PIN(tn);
     tn->name = name;
     tn->module = module;
     tn->wrapper = NULL;
@@ -101,7 +101,7 @@ jl_datatype_t *jl_new_uninitialized_datatype(void)
     jl_datatype_t *t = (jl_datatype_t*)jl_gc_alloc(ct->ptls, sizeof(jl_datatype_t), jl_datatype_type);
     // Types should be pinned since they are used as metadata, and are
     // read during scan_object
-    PTR_PIN(t);
+    OBJ_PIN(t);
     t->hash = 0;
     t->hasfreetypevars = 0;
     t->isdispatchtuple = 0;
@@ -643,7 +643,14 @@ void jl_compute_field_offsets(jl_datatype_t *st)
             }
         }
         assert(ptr_i == npointers);
+        // Work around mmtk-julia #172: Julia assumes perm alloc won't trigger GC.
+#ifdef MMTK_GC
+        int en = jl_gc_enable(0);
+#endif
         st->layout = jl_get_layout(sz, nfields, npointers, alignm, haspadding, desc, pointers);
+#ifdef MMTK_GC
+        jl_gc_enable(en);
+#endif
         if (should_malloc) {
             free(desc);
             if (npointers)
@@ -801,7 +808,14 @@ JL_DLLEXPORT jl_datatype_t *jl_new_primitivetype(jl_value_t *name, jl_module_t *
     // and we easily have a free bit for it in the DataType flags
     bt->isprimitivetype = 1;
     bt->isbitstype = (parameters == jl_emptysvec);
+    // Work around mmtk-julia #172: Julia assumes perm alloc won't trigger GC.
+#ifdef MMTK_GC
+    int en = jl_gc_enable(0);
+#endif
     bt->layout = jl_get_layout(nbytes, 0, 0, alignm, 0, NULL, NULL);
+#ifdef MMTK_GC
+    jl_gc_enable(en);
+#endif
     bt->instance = NULL;
     return bt;
 }

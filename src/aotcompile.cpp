@@ -95,6 +95,7 @@ typedef struct {
     std::vector<GlobalValue*> jl_sysimg_fvars;
     std::vector<GlobalValue*> jl_sysimg_gvars;
     std::map<jl_code_instance_t*, std::tuple<uint32_t, uint32_t>> jl_fvar_map;
+    // This holds references to the heap. Need to be pinned.
     std::vector<void*> jl_value_to_llvm;
     std::vector<jl_code_instance_t*> jl_external_to_llvm;
 } jl_native_code_desc_t;

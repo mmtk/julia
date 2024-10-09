@@ -243,7 +243,7 @@ JL_DLLEXPORT jl_array_t *jl_reshape_array(jl_value_t *atype, jl_array_t *data,
     // introspect the object to update the a->data field. To avoid doing that and
     // making scan_object much more complex we simply enforce that both owner and
     // buffers are always pinned
-    PTR_PIN(owner);
+    OBJ_PIN(owner);
     a->flags.how = 3;
     a->data = data->data;
     a->flags.isshared = 1;
@@ -296,7 +296,7 @@ JL_DLLEXPORT jl_array_t *jl_string_to_array(jl_value_t *str)
     // introspect the object to update the a->data field. To avoid doing that and
     // making scan_object much more complex we simply enforce that both owner and
     // buffers are always pinned
-    PTR_PIN(str);
+    OBJ_PIN(str);
     a->flags.how = 3;
     a->flags.isshared = 1;
     size_t l = jl_string_len(str);
@@ -695,7 +695,7 @@ static int NOINLINE array_resize_buffer(jl_array_t *a, size_t newlen)
         // introspect the object to update the a->data field. To avoid doing that and
         // making scan_object much more complex we simply enforce that both owner and
         // buffers are always pinned
-        PTR_PIN(s);
+        OBJ_PIN(s);
         jl_array_data_owner(a) = s;
         jl_gc_wb(a, s);
         a->data = jl_string_data(s);

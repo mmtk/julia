@@ -47,6 +47,7 @@ JL_DLLEXPORT jl_module_t *jl_new_module_(jl_sym_t *name, uint8_t default_names)
     }
     jl_module_export(m, name);
     JL_GC_POP();
+    OBJ_PIN(m); // modules are referenced in jl_current_modules (htable). They cannot move.
     return m;
 }
 

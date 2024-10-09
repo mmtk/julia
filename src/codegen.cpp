@@ -1441,6 +1441,8 @@ struct jl_cgval_t {
         promotion_point(nullptr),
         promotion_ssa(-1)
     {
+        // jl_cgval_t could be in the native heap. We have to pin the object references in it.
+        OBJ_PIN(typ);
         assert(TIndex == NULL || TIndex->getType() == getInt8Ty(TIndex->getContext()));
     }
     jl_cgval_t(Value *Vptr, bool isboxed, jl_value_t *typ, Value *tindex, MDNode *tbaa) : // general pointer constructor
@@ -1457,6 +1459,8 @@ struct jl_cgval_t {
     {
         if (Vboxed)
             assert(Vboxed->getType() == JuliaType::get_prjlvalue_ty(Vboxed->getContext()));
+        // jl_cgval_t could be in the native heap. We have to pin the object references in it.
+        OBJ_PIN(typ);
         assert(tbaa != NULL);
         assert(!(isboxed && TIndex != NULL));
         assert(TIndex == NULL || TIndex->getType() == getInt8Ty(TIndex->getContext()));
@@ -1474,6 +1478,9 @@ struct jl_cgval_t {
         promotion_point(nullptr),
         promotion_ssa(-1)
     {
+        // jl_cgval_t could be in the native heap. We have to pin the object references in it.
+        OBJ_PIN(typ);
+        OBJ_PIN(constant);
         assert(jl_is_datatype(typ));
         assert(constant);
     }
@@ -1489,6 +1496,9 @@ struct jl_cgval_t {
         promotion_point(v.promotion_point),
         promotion_ssa(v.promotion_ssa)
     {
+        // jl_cgval_t could be in the native heap. We have to pin the object references in it.
+        OBJ_PIN(typ);
+        OBJ_PIN(constant);
         if (Vboxed)
             assert(Vboxed->getType() == JuliaType::get_prjlvalue_ty(Vboxed->getContext()));
         // this constructor expects we had a badly or equivalently typed version
@@ -1551,6 +1561,7 @@ public:
     IRBuilder<> builder;
     jl_codegen_params_t &emission_context;
     llvm::MapVector<jl_code_instance_t*, jl_codegen_call_target_t> call_targets;
+    // This map may hold Julia obj ref in the native heap. We need to pin the void*.
     std::map<void*, GlobalVariable*> &global_targets;
     std::map<std::tuple<jl_code_instance_t*, bool>, GlobalVariable*> &external_calls;
     Function *f = NULL;
@@ -1558,6 +1569,7 @@ public:
     std::vector<jl_varinfo_t> slots;
     std::map<int, jl_varinfo_t> phic_slots;
     std::vector<jl_cgval_t> SAvalues;
+    // The vector holds reference to Julia obj ref. We need to pin jl_value_t*.
     std::vector<std::tuple<jl_cgval_t, BasicBlock *, AllocaInst *, PHINode *, jl_value_t *>> PhiNodes;
     std::vector<bool> ssavalue_assigned;
     std::vector<int> ssavalue_usecount;
@@ -4851,6 +4863,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
                 maybe_bitcast(ctx, decay_derived(ctx, phi), getInt8PtrTy(ctx.builder.getContext())));
             jl_cgval_t val = mark_julia_slot(ptr, phiType, Tindex_phi, ctx.tbaa().tbaa_stack); // XXX: this TBAA is wrong for ptr_phi
             val.Vboxed = ptr_phi;
+            OBJ_PIN(r);
             ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, ptr_phi, r));
             ctx.SAvalues.at(idx) = val;
             ctx.ssavalue_assigned.at(idx) = true;
@@ -4860,6 +4873,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
             PHINode *Tindex_phi = PHINode::Create(getInt8Ty(ctx.builder.getContext()), jl_array_len(edges), "tindex_phi");
             BB->getInstList().insert(InsertPt, Tindex_phi);
             jl_cgval_t val = mark_julia_slot(NULL, phiType, Tindex_phi, ctx.tbaa().tbaa_stack);
+            OBJ_PIN(r);
             ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, (PHINode*)NULL, r));
             ctx.SAvalues.at(idx) = val;
             ctx.ssavalue_assigned.at(idx) = true;
@@ -4895,6 +4909,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
         BB->getInstList().insert(InsertPt, value_phi);
         slot = mark_julia_type(ctx, value_phi, isboxed, phiType);
     }
+    OBJ_PIN(r);
     ctx.PhiNodes.push_back(std::make_tuple(slot, BB, dest, value_phi, r));
     ctx.SAvalues.at(idx) = slot;
     ctx.ssavalue_assigned.at(idx) = true;

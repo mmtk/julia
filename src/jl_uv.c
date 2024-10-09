@@ -275,11 +275,13 @@ JL_DLLEXPORT void jl_forceclose_uv(uv_handle_t *handle)
 JL_DLLEXPORT void jl_uv_associate_julia_struct(uv_handle_t *handle,
                                                jl_value_t *data)
 {
+    OBJ_PIN(data);
     handle->data = data;
 }
 
 JL_DLLEXPORT void jl_uv_disassociate_julia_struct(uv_handle_t *handle)
 {
+    // TODO: unpin here -- we need to implement pin count before we can unpin objects.
     handle->data = NULL;
 }
 

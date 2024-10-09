@@ -744,6 +744,8 @@ void gc_stats_big_obj(void);
 #define gc_stats_big_obj()
 #endif
 
+JL_DLLEXPORT void jl_gc_pin(jl_value_t* obj);
+
 // For debugging
 void gc_count_pool(void);
 

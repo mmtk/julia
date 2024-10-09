@@ -183,10 +183,10 @@ void globally_rooted() {
 extern jl_value_t *first_array_elem(jl_array_t *a JL_PROPAGATES_ROOT);
 
 void root_propagation(jl_expr_t *expr) {
-  PTR_PIN(expr->args);
+  OBJ_PIN(expr->args);
   jl_value_t *val = first_array_elem(expr->args);
   PTR_UNPIN(expr->args);
-  PTR_PIN(val);
+  OBJ_PIN(val);
   jl_gc_safepoint();
   look_at_value(val);
   PTR_UNPIN(val);
@@ -206,7 +206,7 @@ void argument_propagation(jl_value_t *a) {
 void arg_array(jl_value_t **args) {
   jl_gc_safepoint();
   jl_value_t *val = args[1];
-  PTR_PIN(val);
+  OBJ_PIN(val);
   look_at_value(val);
   PTR_UNPIN(val);
   jl_value_t *val2 = NULL;
@@ -267,7 +267,7 @@ void nonconst_loads(jl_svec_t *v)
     size_t i = jl_svec_len(v);
     jl_method_instance_t **data = (jl_method_instance_t**)jl_svec_data(v);
     jl_method_instance_t *mi = data[i];
-    PTR_PIN(mi->specTypes);
+    OBJ_PIN(mi->specTypes);
     look_at_value(mi->specTypes);
     PTR_UNPIN(mi->specTypes);
 }
@@ -288,7 +288,7 @@ static inline void look_at_value2(jl_value_t *v) {
 }
 void mtable(jl_value_t *f) {
   jl_value_t* mtable = (jl_value_t*)jl_gf_mtable(f);
-  PTR_PIN(mtable);
+  OBJ_PIN(mtable);
   look_at_value2(mtable);
   jl_value_t *val = NULL;
   JL_GC_PUSH1(&val);
@@ -305,7 +305,7 @@ void mtable2(jl_value_t **v) {
 
 void tparam0(jl_value_t *atype) {
     jl_value_t *param0 = jl_tparam0(atype);
-    PTR_PIN(param0);
+    OBJ_PIN(param0);
     look_at_value(param0);
     PTR_UNPIN(param0);
 }
@@ -344,11 +344,11 @@ void module_member(jl_module_t *m)
 {
     for(int i=(int)m->usings.len-1; i >= 0; --i) {
       jl_module_t *imp = propagation(m);
-      PTR_PIN(imp);
+      OBJ_PIN(imp);
       jl_gc_safepoint();
       look_at_value((jl_value_t*)imp);
       jl_module_t *prop = propagation(imp);
-      PTR_PIN(prop);
+      OBJ_PIN(prop);
       look_at_value((jl_value_t*)prop);
       PTR_UNPIN(prop);
       PTR_UNPIN(imp);
