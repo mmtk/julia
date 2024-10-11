@@ -8,20 +8,32 @@ extern "C" {
 #endif
 
 extern int mmtk_object_is_managed_by_mmtk(void* addr);
+// Pointers include off-heap pointers, internal pointers, and normal object reference
+extern unsigned char mmtk_pin_pointer(void* ptr);
+extern unsigned char mmtk_unpin_pointer(void* ptr);
+extern unsigned char mmtk_is_pointer_pinned(void* ptr);
+// Object can only be in-heap object references.
 extern unsigned char mmtk_pin_object(void* obj);
 extern unsigned char mmtk_unpin_object(void* obj);
+extern unsigned char mmtk_is_object_pinned(void* obj);
 
 #ifdef __clang_gcanalyzer__
+extern void OBJ_PIN(void* key) JL_NOTSAFEPOINT;
+extern void OBJ_UNPIN(void* key) JL_NOTSAFEPOINT;
 extern void PTR_PIN(void* key) JL_NOTSAFEPOINT;
 extern void PTR_UNPIN(void* key) JL_NOTSAFEPOINT;
 #else
 
 #ifdef MMTK_GC
-#define PTR_PIN(key) mmtk_pin_object(key);
-#define PTR_UNPIN(key) mmtk_unpin_object(key);
+#define PTR_PIN(key) if (key) mmtk_pin_pointer(key);
+#define PTR_UNPIN(key) if (key) mmtk_unpin_pointer(key);
+#define OBJ_PIN(key) if (key) mmtk_pin_object(key);
+#define OBJ_UNPIN(key) if (key) mmtk_unpin_object(key);
 #else
 #define PTR_PIN(key)
 #define PTR_UNPIN(key)
+#define OBJ_PIN(key)
+#define OBJ_UNPIN(key)
 #endif
 
 #endif
@@ -588,7 +600,7 @@ STATIC_INLINE jl_gc_tracked_buffer_t *jl_gc_alloc_buf(jl_ptls_t ptls, size_t sz)
     // introspect the object to update the a->data field. To avoid doing that and
     // making scan_object much more complex we simply enforce that both owner and
     // buffers are always pinned
-    PTR_PIN(buf);
+    OBJ_PIN(buf);
     return buf;
 }
 

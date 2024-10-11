@@ -3619,6 +3619,11 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
     jl_unreachable();
 }
 
+JL_DLLEXPORT void jl_gc_pin(jl_value_t* obj)
+{
+    // Nothing needs to be done
+}
+
 #ifdef __cplusplus
 }
 #endif

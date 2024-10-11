@@ -122,6 +122,7 @@ mutable struct BigFloat <: AbstractFloat
         nb = (nb + Core.sizeof(Limb) - 1) ÷ Core.sizeof(Limb) # align to number of Limb allocations required for this
         #d = Vector{Limb}(undef, nb)
         d = _string_n(nb * Core.sizeof(Limb))
+        ccall(:jl_gc_pin, Cvoid, (Any,), d); # Pin the Julia object
         EXP_NAN = Clong(1) - Clong(typemax(Culong) >> 1)
         return _BigFloat(Clong(precision), one(Cint), EXP_NAN, d) # +NAN
     end

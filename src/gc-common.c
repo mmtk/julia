@@ -859,6 +859,11 @@ JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref_th(jl_ptls_t ptls,
     jl_weakref_t *wr = (jl_weakref_t*)jl_gc_alloc(ptls, sizeof(void*),
                                                   jl_weakref_type);
     wr->value = value;  // NOTE: wb not needed here
+    // We need this pin. The weak refs are stored in an arraylist.
+    OBJ_PIN(wr);
+    // This pin is not necessary. We can deal with object forwarding in weak ref processing.
+    // Pinning is simpler.
+    OBJ_PIN(value);
     small_arraylist_push(&ptls->heap.weak_refs, wr);
     return wr;
 }

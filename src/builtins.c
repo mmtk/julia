@@ -314,7 +314,7 @@ static uintptr_t type_object_id_(jl_value_t *v, jl_varidx_t *env) JL_NOTSAFEPOIN
         }
         // FIXME: Pinning objects that get hashed
         // until we implement address space hashing.
-        PTR_PIN(v);
+        OBJ_PIN(v);
         return inthash((uintptr_t)v);
     }
     if (tv == jl_uniontype_type) {
@@ -364,7 +364,7 @@ static uintptr_t immut_id_(jl_datatype_t *dt, jl_value_t *v, uintptr_t h) JL_NOT
 
         // FIXME: Pinning objects that get hashed
         // until we implement address space hashing.
-        PTR_PIN(v);
+        PTR_PIN(v); // This has to be a pointer pin -- v could be an internal pointer
         // operate element-wise if there are unused bits inside,
         // otherwise just take the whole data block at once
         // a few select pointers (notably symbol) also have special hash values
@@ -424,7 +424,7 @@ static uintptr_t NOINLINE jl_object_id__cold(jl_datatype_t *dt, jl_value_t *v) J
     if (dt->name->mutabl) {
         // FIXME: Pinning objects that get hashed
         // until we implement address space hashing.
-        PTR_PIN(v);
+        OBJ_PIN(v);
         return inthash((uintptr_t)v);
     }
     return immut_id_(dt, v, dt->hash);

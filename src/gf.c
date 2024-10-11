@@ -430,6 +430,8 @@ JL_DLLEXPORT jl_code_instance_t *jl_new_codeinst(
     jl_atomic_store_relaxed(&codeinst->purity_bits, effects);
     codeinst->argescapes = argescapes;
     codeinst->relocatability = relocatability;
+    // Pin codeinst, as they are referenced by vectors and maps in _jl_codegen_params_t
+    OBJ_PIN(codeinst);
     return codeinst;
 }
 
