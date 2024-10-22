@@ -1,12 +1,12 @@
 #ifdef MMTK_GC
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-extern jl_mutex_t finalizers_lock;
-extern arraylist_t to_finalize;
-extern arraylist_t finalizer_list_marked;
 
 JL_EXTENSION typedef struct _bigval_t {
     size_t sz;
