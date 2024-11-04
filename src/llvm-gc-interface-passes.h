@@ -43,6 +43,7 @@
 #include "julia.h"
 #include "julia_internal.h"
 #include "julia_assert.h"
+#include "gc-interface.h"
 #include "llvm-pass-helpers.h"
 #include <map>
 #include <string>

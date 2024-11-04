@@ -42,7 +42,7 @@ void FinalLowerGC::lowerPushGCFrame(CallInst *target, Function &F)
 
     IRBuilder<> builder(target);
     StoreInst *inst = builder.CreateAlignedStore(
-                ConstantInt::get(T_size, JL_GC_ENCODE_PUSHARGS(nRoots)),
+                ConstantInt::get(T_size, JL_GC_ENCODE_PUSHARGS_NO_TPIN(nRoots)),
                 builder.CreateConstInBoundsGEP1_32(T_prjlvalue, gcframe, 0, "frame.nroots"),// GEP of 0 becomes a noop and eats the name
                 Align(sizeof(void*)));
     inst->setMetadata(LLVMContext::MD_tbaa, tbaa_gcframe);

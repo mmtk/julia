@@ -163,6 +163,12 @@ namespace jl_well_known {
     // `jl_gc_alloc_typed`: allocates bytes.
     extern const WellKnownFunctionDescription GCAllocTyped;
 
+    // `jl_gc_preserve_begin_hook`: called at the beginning of gc preserve regions, if required
+    extern const WellKnownFunctionDescription GCPreserveBeginHook;
+
+    // `jl_gc_preserve_end_hook`: called at the end of gc preserve regions, if required
+    extern const WellKnownFunctionDescription GCPreserveEndHook;
+
 #ifdef MMTK_GC
     extern const WellKnownFunctionDescription GCWriteBarrier1;
     extern const WellKnownFunctionDescription GCWriteBarrier2;

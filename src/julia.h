@@ -1053,8 +1053,40 @@ struct _jl_gcframe_t {
 
 #define jl_pgcstack (jl_current_task->gcstack)
 
+#ifndef MMTK_GC
+
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
+#define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)  JL_GC_ENCODE_PUSHARGS(n)
+#define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
+
+#else
+
+// We use an extra bit (100) in the nroots value from the frame to indicate that the roots
+// in the frame are/are not transitively pinning.
+// There are currently 3 macros that encode passing nroots to the gcframe
+// and they use the two lowest bits to encode information about what is in the frame (as below).
+// To support the distinction between transtively pinning roots and non transitively pinning roots
+// on the stack, we take another bit from nroots to encode information about whether or not to
+// transitively pin the roots in the frame.
+//
+// So the ones that transitively pin look like:
+// #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
+// #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
+// #define JL_GC_ENCODE_PUSHFRAME(n)  ((((size_t)(n))<<3)|2)
+// and the ones that do not look like:
+// #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
+// #define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
+// #define JL_GC_ENCODE_PUSHFRAME_NO_TPIN(n)  ((((size_t)(n))<<3)|6)
+
+// these are transitively pinning
+#define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
+#define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
+// these only pin the root object itself
+#define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
+#define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
+
+#endif
 
 #ifdef __clang_gcanalyzer__
 
@@ -2334,6 +2366,11 @@ typedef struct _jl_task_t {
     // uint48_t padding2_64;
     // saved gc stack top for context switches
     jl_gcframe_t *gcstack;
+#ifdef MMTK_GC
+    // GC stack of objects from gc preserve regions
+    // These must always be transitively pinned. Only used by MMTK.
+    jl_gcframe_t *gcpreserve_stack;
+#endif
     size_t world_age;
     // quick lookup for current ptls
     jl_ptls_t ptls; // == jl_all_tls_states[tid]

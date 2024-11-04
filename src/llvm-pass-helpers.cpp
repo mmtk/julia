@@ -347,6 +347,8 @@ namespace jl_well_known {
     static const char *GC_SMALL_ALLOC_NAME = XSTR(jl_gc_small_alloc);
     static const char *GC_QUEUE_ROOT_NAME = XSTR(jl_gc_queue_root);
     static const char *GC_ALLOC_TYPED_NAME = XSTR(jl_gc_alloc_typed);
+    static const char *GC_PRESERVE_BEGIN_HOOK_NAME = XSTR(jl_gc_preserve_begin_hook);
+    static const char *GC_PRESERVE_END_HOOK_NAME = XSTR(jl_gc_preserve_end_hook);
 #ifdef MMTK_GC
     static const char *GC_WB_1_NAME = XSTR(jl_gc_wb1_noinline);
     static const char *GC_WB_2_NAME = XSTR(jl_gc_wb2_noinline);
@@ -424,6 +426,45 @@ namespace jl_well_known {
                 GC_ALLOC_TYPED_NAME);
             allocTypedFunc->addFnAttr(Attribute::getWithAllocSizeArgs(ctx, 1, None));
             return addGCAllocAttributes(allocTypedFunc);
+        });
+
+    const WellKnownFunctionDescription GCPreserveBeginHook(
+        GC_PRESERVE_BEGIN_HOOK_NAME,
+        [](Type *T_size) {
+            auto &ctx = T_size->getContext();
+            auto func = Function::Create(
+                FunctionType::get(
+                    Type::getVoidTy(ctx),
+                    { T_size },
+                    true),
+                Function::ExternalLinkage,
+                GC_PRESERVE_BEGIN_HOOK_NAME);
+
+#if JL_LLVM_VERSION >= 160000
+            func->setMemoryEffects(MemoryEffects::inaccessibleOrArgMemOnly());
+#else
+            func->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
+#endif
+            return func;
+        });
+
+    const WellKnownFunctionDescription GCPreserveEndHook(
+        GC_PRESERVE_END_HOOK_NAME,
+        [](Type *T_size) {
+            auto &ctx = T_size->getContext();
+            auto func = Function::Create(
+                FunctionType::get(
+                    Type::getVoidTy(ctx),
+                    {  },
+                    false),
+                Function::ExternalLinkage,
+                GC_PRESERVE_END_HOOK_NAME);
+#if JL_LLVM_VERSION >= 160000
+            func->setMemoryEffects(MemoryEffects::inaccessibleOrArgMemOnly());
+#else
+            func->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
+#endif
+            return func;
         });
 
 #ifdef MMTK_GC

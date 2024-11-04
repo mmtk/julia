@@ -4000,6 +4000,16 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
 {
 }
 
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
+JL_DLLEXPORT void jl_gc_preserve_end_hook(int n, ...) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
 #ifdef __cplusplus
 }
 #endif
