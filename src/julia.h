@@ -1061,14 +1061,14 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
 #else
 
-// We use an extra bit (100) in the nroots value from the frame to indicate that the roots 
+// We use an extra bit (100) in the nroots value from the frame to indicate that the roots
 // in the frame are/are not transitively pinning.
-// There are currently 3 macros that encode passing nroots to the gcframe 
+// There are currently 3 macros that encode passing nroots to the gcframe
 // and they use the two lowest bits to encode information about what is in the frame (as below).
 // To support the distinction between transtively pinning roots and non transitively pinning roots
-// on the stack, we take another bit from nroots to encode information about whether or not to 
+// on the stack, we take another bit from nroots to encode information about whether or not to
 // transitively pin the roots in the frame.
-// 
+//
 // So the ones that transitively pin look like:
 // #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
 // #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
