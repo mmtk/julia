@@ -1056,6 +1056,7 @@ struct _jl_gcframe_t {
 #ifndef MMTK_GC
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
+#define JL_GC_DECODE_NROOTS(n)     (n >> 2)
 
 #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)  JL_GC_ENCODE_PUSHARGS(n)
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
@@ -1081,6 +1082,7 @@ struct _jl_gcframe_t {
 // these are transitively pinning
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
+#define JL_GC_DECODE_NROOTS(n)     (n >> 3)
 
 // these only pin the root object itself
 #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
