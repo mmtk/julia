@@ -1054,13 +1054,12 @@ struct _jl_gcframe_t {
 #define jl_pgcstack (jl_current_task->gcstack)
 
 #ifndef MMTK_GC
-
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
 #define JL_GC_DECODE_NROOTS(n)     (n >> 2)
+
 #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)  JL_GC_ENCODE_PUSHARGS(n)
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
-
 #else
 
 // We use an extra bit (100) in the nroots value from the frame to indicate that the roots
@@ -1084,10 +1083,10 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
 #define JL_GC_DECODE_NROOTS(n)     (n >> 3)
+
 // these only pin the root object itself
 #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
-
 #endif
 
 #ifdef __clang_gcanalyzer__
