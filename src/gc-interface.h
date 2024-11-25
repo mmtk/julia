@@ -103,7 +103,6 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
 
 // TODO: The preserve hook functions may be temporary. We should see the performance impact of the change.
 
-extern int need_gc_preserve_hook;
 // Runtime hook for gc preserve begin. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
 JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT;
 // Runtime hook for gc preserve end. The GC needs to make sure that the preserved objects and its children stay alive and won't move.

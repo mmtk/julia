@@ -326,7 +326,8 @@ struct LateLowerGCFrame:  private JuliaPassContext {
     LateLowerGCFrame(function_ref<DominatorTree &()> GetDT) : GetDT(GetDT) {}
 
 public:
-    bool runOnFunction(Function &F, bool *CFGModified = nullptr);
+    int need_gc_preserve_hook;
+    virtual bool runOnFunction(Function &F, bool *CFGModified = nullptr);
 
 private:
     CallInst *pgcstack;
@@ -371,6 +372,11 @@ private:
 #ifdef MMTK_GC
     Value* lowerGCAllocBytesLate(CallInst *target, Function &F);
 #endif
+};
+
+struct LateLowerGCFrameCustom: public LateLowerGCFrame {
+public:
+    bool runOnFunction(Function &F, bool *CFGModified = nullptr) override;
 };
 
 // The final GC lowering pass. This pass lowers platform-agnostic GC

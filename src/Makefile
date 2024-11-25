@@ -29,8 +29,13 @@ ifeq ($(USECLANG),1)
 FLAGS += -Wno-return-type-c-linkage -Wno-atomic-alignment
 endif
 
+# Currently these files are used by both GCs. But we should make the list specific to stock, and MMTk should have its own implementation.
+GC_CODEGEN_SRCS := llvm-final-gc-lowering llvm-late-gc-lowering llvm-gc-invariant-verifier
 ifeq ($(WITH_MMTK), 1)
 FLAGS += -I$(MMTK_API_INC)
+GC_CODEGEN_SRCS += llvm-late-gc-lowering-mmtk
+else
+GC_CODEGEN_SRCS += llvm-late-gc-lowering-stock
 endif
 
 FLAGS += -DJL_BUILD_ARCH='"$(ARCH)"'
@@ -57,11 +62,11 @@ CG_LLVMLINK :=
 
 ifeq ($(JULIACODEGEN),LLVM)
 CODEGEN_SRCS := codegen jitlayers aotcompile debuginfo disasm llvm-simdloop \
-	llvm-final-gc-lowering llvm-pass-helpers llvm-late-gc-lowering llvm-ptls \
-	llvm-lower-handlers llvm-gc-invariant-verifier llvm-propagate-addrspaces \
+	llvm-pass-helpers llvm-ptls \
+	llvm-lower-handlers llvm-propagate-addrspaces \
 	llvm-multiversioning llvm-alloc-opt llvm-alloc-helpers cgmemmgr llvm-remove-addrspaces \
 	llvm-remove-ni llvm-julia-licm llvm-demote-float16 llvm-cpufeatures pipeline llvm_api \
-	gc-codegen
+	$(GC_CODEGEN_SRCS)
 FLAGS += -I$(shell $(LLVM_CONFIG_HOST) --includedir)
 CG_LLVM_LIBS := all
 ifeq ($(USE_POLLY),1)
