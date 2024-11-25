@@ -2588,7 +2588,7 @@ bool LateLowerGCFrame::runOnFunction(Function &F, bool *CFGModified) {
     auto GCAllocBytes = getOrNull(jl_intrinsics::GCAllocBytes);
 
     if (GCAllocBytes) {
-        for (auto it = GCAllocBytes->user_begin(); it != GCAllocBytes->user_end(); it++) {
+        for (auto it = GCAllocBytes->user_begin(); it != GCAllocBytes->user_end(); ) {
             if (auto *CI = dyn_cast<CallInst>(*it)) {
                 *CFGModified = true;
 
@@ -2598,9 +2598,11 @@ bool LateLowerGCFrame::runOnFunction(Function &F, bool *CFGModified) {
                 auto newI = lowerGCAllocBytesLate(CI, F);
                 if (newI != CI) {
                     CI->replaceAllUsesWith(newI);
-                    CI->eraseFromParent();
+                    it = CI->eraseFromParent();
+                    continue;
                 }
             }
+            it++;
         }
     }
 #endif
