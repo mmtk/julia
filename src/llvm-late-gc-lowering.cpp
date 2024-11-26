@@ -2619,13 +2619,13 @@ bool LateLowerGCFrame::runOnFunction(Function &F, bool *CFGModified) {
 
                 auto newI = lowerGCAllocBytesLate(CI, F);
                 if (newI != CI) {
-                    it++;
+                    ++it;
                     CI->replaceAllUsesWith(newI);
                     CI->eraseFromParent();
                     continue;
                 }
             }
-            it++;
+            ++it;
         }
     }
 #endif
