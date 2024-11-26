@@ -1787,7 +1787,7 @@ function banner(io::IO = stdout; short = false)
         if short
             print(io,"""
               $(d3)o$(tx)  | Version $(VERSION)$(commit_date) $(gc_version)
-             $(d2)o$(tx) $(d4)o$(tx) | $(commit_string) 
+             $(d2)o$(tx) $(d4)o$(tx) | $(commit_string)
             """)
         else
             print(io,"""               $(d3)_$(tx)
@@ -1804,8 +1804,8 @@ function banner(io::IO = stdout; short = false)
     else
         if short
             print(io,"""
-              o  |  Version $(VERSION)$(commit_date) 
-             o o |  $(commit_string) 
+              o  |  Version $(VERSION)$(commit_date) $(gc_version)
+             o o |  $(commit_string)
             """)
         else
             print(io,"""
