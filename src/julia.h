@@ -2367,11 +2367,9 @@ typedef struct _jl_task_t {
     // uint48_t padding2_64;
     // saved gc stack top for context switches
     jl_gcframe_t *gcstack;
-#ifdef MMTK_GC
     // GC stack of objects from gc preserve regions
     // These must always be transitively pinned. Only used by MMTK.
     jl_gcframe_t *gcpreserve_stack;
-#endif
     size_t world_age;
     // quick lookup for current ptls
     jl_ptls_t ptls; // == jl_all_tls_states[tid]
