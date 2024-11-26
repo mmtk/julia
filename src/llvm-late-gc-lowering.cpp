@@ -2597,8 +2597,9 @@ bool LateLowerGCFrame::runOnFunction(Function &F, bool *CFGModified) {
 
                 auto newI = lowerGCAllocBytesLate(CI, F);
                 if (newI != CI) {
+                    it++;
                     CI->replaceAllUsesWith(newI);
-                    it = CI->eraseFromParent();
+                    CI->eraseFromParent();
                     continue;
                 }
             }
