@@ -4000,6 +4000,10 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
 {
 }
 
+JL_DLLEXPORT jl_gc_impl jl_active_gc_impl(void) {
+    return STOCK;
+}
+
 #ifdef __cplusplus
 }
 #endif

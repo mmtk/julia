@@ -310,6 +310,10 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
 // GC Statistics
 // ========================================================================= //
 
+JL_DLLEXPORT jl_gc_impl jl_active_gc_impl(void) {
+    return MMTK;
+}
+
 int64_t last_gc_total_bytes = 0;
 int64_t last_live_bytes = 0; // live_bytes at last collection
 int64_t live_bytes = 0;
