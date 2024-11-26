@@ -1771,13 +1771,7 @@ function banner(io::IO = stdout; short = false)
         end
     end
 
-    gc_string = ""
-
-    with_mmtk = ccall(:jl_active_gc_impl, Cint, ())
-
-    if with_mmtk == 1
-        gc_string = "(GC: MMTk)"
-    end
+    gc_version = unsafe_string(ccall(:jl_active_gc_impl, Ptr{UInt8}, ()))
 
     commit_date = isempty(Base.GIT_VERSION_INFO.date_string) ? "" : " ($(split(Base.GIT_VERSION_INFO.date_string)[1]))"
 
@@ -1792,8 +1786,8 @@ function banner(io::IO = stdout; short = false)
 
         if short
             print(io,"""
-              $(d3)o$(tx)  | Version $(VERSION)$(commit_date) $(gc_string)
-             $(d2)o$(tx) $(d4)o$(tx) | $(commit_string)
+              $(d3)o$(tx)  | Version $(VERSION)$(commit_date) $(gc_version)
+             $(d2)o$(tx) $(d4)o$(tx) | $(commit_string) 
             """)
         else
             print(io,"""               $(d3)_$(tx)
@@ -1801,17 +1795,17 @@ function banner(io::IO = stdout; short = false)
               $(d1)(_)$(jl)     | $(d2)(_)$(tx) $(d4)(_)$(tx)    |
                $(jl)_ _   _| |_  __ _$(tx)   |  Type \"?\" for help, \"]?\" for Pkg help.
               $(jl)| | | | | | |/ _` |$(tx)  |
-              $(jl)| | |_| | | | (_| |$(tx)  |  Version $(VERSION)$(commit_date) $(gc_string)
+              $(jl)| | |_| | | | (_| |$(tx)  |  Version $(VERSION)$(commit_date)
              $(jl)_/ |\\__'_|_|_|\\__'_|$(tx)  |  $(commit_string)
-            $(jl)|__/$(tx)                   |
+            $(jl)|__/$(tx)                   |  $(gc_version)
 
             """)
         end
     else
         if short
             print(io,"""
-              o  |  Version $(VERSION)$(commit_date) $(gc_string)
-             o o |  $(commit_string)
+              o  |  Version $(VERSION)$(commit_date) 
+             o o |  $(commit_string) 
             """)
         else
             print(io,"""
@@ -1820,9 +1814,9 @@ function banner(io::IO = stdout; short = false)
               (_)     | (_) (_)    |
                _ _   _| |_  __ _   |  Type \"?\" for help, \"]?\" for Pkg help.
               | | | | | | |/ _` |  |
-              | | |_| | | | (_| |  |  Version $(VERSION)$(commit_date) $(gc_string)
+              | | |_| | | | (_| |  |  Version $(VERSION)$(commit_date)
              _/ |\\__'_|_|_|\\__'_|  |  $(commit_string)
-            |__/                   |
+            |__/                   |  $(gc_version)
 
             """)
         end

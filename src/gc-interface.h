@@ -100,13 +100,8 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection);
 JL_DLLEXPORT int gc_is_collector_thread(int tid) JL_NOTSAFEPOINT;
 // Pinning objects; Returns whether the object has been pinned by this call.
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
-// List of supported GCs
-typedef enum {
-    STOCK = 0,
-    MMTK = 1,
-} jl_gc_impl;
-// Returns which GC implementation is being used according to the list of supported GCs
-JL_DLLEXPORT jl_gc_impl jl_active_gc_impl(void);
+// Returns the version of which GC implementation is being used according to the list of supported GCs
+JL_DLLEXPORT const char* jl_active_gc_impl(void);
 
 // ========================================================================= //
 // Metrics

@@ -310,8 +310,9 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
 // GC Statistics
 // ========================================================================= //
 
-JL_DLLEXPORT jl_gc_impl jl_active_gc_impl(void) {
-    return MMTK;
+JL_DLLEXPORT const char* jl_active_gc_impl(void) {
+    const char* mmtk_version = get_mmtk_version();
+    return mmtk_version;
 }
 
 int64_t last_gc_total_bytes = 0;
