@@ -1,6 +1,5 @@
 #ifdef MMTK_GC
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 

@@ -37,6 +37,7 @@ jl_binding_partition_t *jl_get_binding_partition(jl_binding_t *b, size_t world) 
     _Atomic(jl_binding_partition_t *)*insert = &b->partitions;
     jl_binding_partition_t *bpart = jl_atomic_load_relaxed(insert);
     size_t max_world = (size_t)-1;
+    jl_binding_partition_t *new_bpart = NULL;
     while (1) {
         while (bpart && world < bpart->min_world) {
             insert = &bpart->next;
@@ -46,11 +47,11 @@ jl_binding_partition_t *jl_get_binding_partition(jl_binding_t *b, size_t world) 
         }
         if (bpart && world <= jl_atomic_load_relaxed(&bpart->max_world))
             return bpart;
-        jl_binding_partition_t *new_bpart = new_binding_partition();
+        if (!new_bpart)
+            new_bpart = new_binding_partition();
         jl_atomic_store_relaxed(&new_bpart->next, bpart);
         jl_gc_wb_fresh(new_bpart, bpart);
-        if (bpart)
-            new_bpart->min_world = jl_atomic_load_relaxed(&bpart->max_world) + 1;
+        new_bpart->min_world = bpart ? jl_atomic_load_relaxed(&bpart->max_world) + 1 : 0;
         jl_atomic_store_relaxed(&new_bpart->max_world, max_world);
         if (jl_atomic_cmpswap(insert, &bpart, new_bpart)) {
             jl_gc_wb(parent, new_bpart);
@@ -59,16 +60,15 @@ jl_binding_partition_t *jl_get_binding_partition(jl_binding_t *b, size_t world) 
     }
 }
 
-JL_DLLEXPORT jl_binding_partition_t *jl_get_globalref_partition(jl_globalref_t *gr, size_t world)
-{
-    if (!gr)
-        return NULL;
-    jl_binding_t *b = NULL;
-    if (gr)
-        b = gr->binding;
+jl_binding_partition_t *jl_get_binding_partition_all(jl_binding_t *b, size_t min_world, size_t max_world) {
     if (!b)
-        b = jl_get_module_binding(gr->mod, gr->name, 0);
-    return jl_get_binding_partition(b, world);
+        return NULL;
+    jl_binding_partition_t *bpart = jl_get_binding_partition(b, min_world);
+    if (!bpart)
+        return NULL;
+    if (jl_atomic_load_relaxed(&bpart->max_world) < max_world)
+        return NULL;
+    return bpart;
 }
 
 JL_DLLEXPORT jl_module_t *jl_new_module_(jl_sym_t *name, jl_module_t *parent, uint8_t default_names)
@@ -371,6 +371,28 @@ JL_DLLEXPORT jl_value_t *jl_get_binding_value_if_resolved_and_const(jl_binding_t
     return decode_restriction_value(pku);
 }
 
+JL_DLLEXPORT jl_value_t *jl_get_binding_value_if_resolved(jl_binding_t *b)
+{
+    // Unlike jl_get_binding_value this doesn't try to allocate new binding partitions if they
+    // don't already exist, making this JL_NOTSAFEPOINT.
+    if (!b)
+        return NULL;
+    jl_binding_partition_t *bpart = jl_atomic_load_relaxed(&b->partitions);
+    if (!bpart)
+        return NULL;
+    size_t max_world = jl_atomic_load_relaxed(&bpart->max_world);
+    if (bpart->min_world > jl_current_task->world_age || jl_current_task->world_age > max_world)
+        return NULL;
+    jl_ptr_kind_union_t pku = jl_atomic_load_relaxed(&bpart->restriction);
+    if (jl_bkind_is_some_guard(decode_restriction_kind(pku)))
+        return NULL;
+    if (jl_bkind_is_some_import(decode_restriction_kind(pku)))
+        return NULL;
+    if (jl_bkind_is_some_constant(decode_restriction_kind(pku)))
+        return decode_restriction_value(pku);
+    return jl_atomic_load_relaxed(&b->value);
+}
+
 JL_DLLEXPORT jl_value_t *jl_bpart_get_restriction_value(jl_binding_partition_t *bpart)
 {
     jl_ptr_kind_union_t pku = jl_atomic_load_relaxed(&bpart->restriction);
@@ -548,6 +570,7 @@ retry:
         // changing, for example if this var is assigned to later.
         if (!jl_atomic_cmpswap(&bpart->restriction, &pku, encode_restriction((jl_value_t*)b2, BINDING_KIND_IMPLICIT)))
             goto retry;
+        jl_gc_wb(bpart, b2);
         if (b2->deprecated) {
             b->deprecated = 1; // we will warn about this below, but we might want to warn at the use sites too
             if (m != jl_main_module && m != jl_base_module &&
@@ -740,6 +763,7 @@ retry:
             jl_ptr_kind_union_t new_pku = encode_restriction((jl_value_t*)b, (explici != 0) ? BINDING_KIND_IMPORTED : BINDING_KIND_EXPLICIT);
             if (!jl_atomic_cmpswap(&btopart->restriction, &bto_pku, new_pku))
                 goto retry;
+            jl_gc_wb(btopart, b);
             bto->deprecated |= b->deprecated; // we already warned about this above, but we might want to warn at the use sites too
         }
         else {
@@ -749,6 +773,7 @@ retry:
                     jl_ptr_kind_union_t new_pku = encode_restriction(decode_restriction_value(bto_pku), (explici != 0) ? BINDING_KIND_IMPORTED : BINDING_KIND_EXPLICIT);
                     if (!jl_atomic_cmpswap(&btopart->restriction, &bto_pku, new_pku))
                         goto retry;
+                    // No wb, because the value is unchanged
                 }
             }
             else if (jl_bkind_is_some_import(decode_restriction_kind(bto_pku))) {
@@ -1262,6 +1287,7 @@ JL_DLLEXPORT jl_uuid_t jl_module_uuid(jl_module_t* m) { return m->uuid; }
 
 // TODO: make this part of the module constructor and read-only?
 JL_DLLEXPORT void jl_set_module_uuid(jl_module_t *m, jl_uuid_t uuid) { m->uuid = uuid; }
+JL_DLLEXPORT void jl_set_module_parent(jl_module_t *m, jl_module_t *parent) { m->parent = parent; }
 
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent) JL_NOTSAFEPOINT
 {
@@ -1294,15 +1320,20 @@ JL_DLLEXPORT void jl_clear_implicit_imports(jl_module_t *m)
     JL_UNLOCK(&m->lock);
 }
 
+JL_DLLEXPORT void jl_add_to_module_init_list(jl_value_t *mod)
+{
+    if (jl_module_init_order == NULL)
+        jl_module_init_order = jl_alloc_vec_any(0);
+    jl_array_ptr_1d_push(jl_module_init_order, mod);
+}
+
 JL_DLLEXPORT void jl_init_restored_module(jl_value_t *mod)
 {
     if (!jl_generating_output() || jl_options.incremental) {
         jl_module_run_initializer((jl_module_t*)mod);
     }
     else {
-        if (jl_module_init_order == NULL)
-            jl_module_init_order = jl_alloc_vec_any(0);
-        jl_array_ptr_1d_push(jl_module_init_order, mod);
+        jl_add_to_module_init_list(mod);
     }
 }
 

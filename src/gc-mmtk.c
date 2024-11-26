@@ -237,9 +237,9 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
     jl_atomic_store_release(&ptls->gc_state, JL_GC_STATE_WAITING);
     // `jl_safepoint_start_gc()` makes sure only one thread can run the GC.
     uint64_t t0 = jl_hrtime();
-    if (!jl_safepoint_start_gc()) {
+    if (!jl_safepoint_start_gc(ct)) {
         jl_gc_state_set(ptls, old_state, JL_GC_STATE_WAITING);
-        jl_safepoint_wait_thread_resume(); // block in thread-suspend now if requested, after clearing the gc_state
+        jl_safepoint_wait_thread_resume(ct); // block in thread-suspend now if requested, after clearing the gc_state
         return;
     }
 
@@ -285,7 +285,7 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
     jl_safepoint_end_gc();
     jl_gc_state_set(ptls, old_state, JL_GC_STATE_WAITING);
     JL_PROBE_GC_END();
-    jl_safepoint_wait_thread_resume(); // block in thread-suspend now if requested, after clearing the gc_state
+    jl_safepoint_wait_thread_resume(ct); // block in thread-suspend now if requested, after clearing the gc_state
 
     // Only disable finalizers on current thread
     // Doing this on all threads is racy (it's impossible to check

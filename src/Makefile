@@ -328,7 +328,7 @@ $(BUILDDIR)/debuginfo.o $(BUILDDIR)/debuginfo.dbg.obj: $(addprefix $(SRCDIR)/,de
 $(BUILDDIR)/disasm.o $(BUILDDIR)/disasm.dbg.obj: $(SRCDIR)/debuginfo.h $(SRCDIR)/processor.h
 $(BUILDDIR)/gc-debug.o $(BUILDDIR)/gc-debug.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-stock.h
 $(BUILDDIR)/gc-pages.o $(BUILDDIR)/gc-pages.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-stock.h
-$(BUILDDIR)/gc-mmtk.o $(BUILDDIR)/mmtk-gc.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h
+$(BUILDDIR)/gc-mmtk.o $(BUILDDIR)/gc-mmtk.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h
 $(BUILDDIR)/gc-stacks.o $(BUILDDIR)/gc-stacks.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-stock.h
 $(BUILDDIR)/gc-stock.o $(BUILDDIR)/gc.dbg.obj: $(SRCDIR)/gc-common.h $(SRCDIR)/gc-stock.h $(SRCDIR)/gc-heap-snapshot.h $(SRCDIR)/gc-alloc-profiler.h $(SRCDIR)/gc-page-profiler.h
 $(BUILDDIR)/gc-heap-snapshot.o $(BUILDDIR)/gc-heap-snapshot.dbg.obj: $(SRCDIR)/gc-heap-snapshot.h

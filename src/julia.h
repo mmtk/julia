@@ -408,7 +408,7 @@ struct _jl_method_instance_t {
     } def; // pointer back to the context for this code
     jl_value_t *specTypes;  // argument types this was specialized for
     jl_svec_t *sparam_vals; // static parameter values, indexed by def.method->sig
-    jl_array_t *backedges; // list of method-instances which call this method-instance; `invoke` records (invokesig, caller) pairs
+    jl_array_t *backedges; // list of code-instances which call this method-instance; `invoke` records (invokesig, caller) pairs
     _Atomic(struct _jl_code_instance_t*) cache;
     uint8_t cache_with_orig; // !cache_with_specTypes
 
@@ -453,6 +453,7 @@ typedef struct _jl_code_instance_t {
     // - null, indicating that inference was not yet completed or did not succeed
     _Atomic(jl_value_t *) inferred;
     _Atomic(jl_debuginfo_t *) debuginfo; // stored information about edges from this object (set once, with a happens-before both source and invoke)
+    _Atomic(jl_svec_t *) edges; // forward edge info
     //TODO: uint8_t absolute_max; // whether true max world is unknown
 
     // purity results
@@ -789,7 +790,7 @@ typedef struct _jl_methtable_t {
     _Atomic(jl_typemap_t*) cache;
     _Atomic(intptr_t) max_args;  // max # of non-vararg arguments in a signature
     jl_module_t *module; // sometimes used for debug printing
-    jl_array_t *backedges; // (sig, caller::MethodInstance) pairs
+    jl_array_t *backedges; // (sig, caller::CodeInstance) pairs
     jl_mutex_t writelock;
     uint8_t offs;  // 0, or 1 to skip splitting typemap on first (function) argument
     uint8_t frozen; // whether this accepts adding new methods
@@ -1128,20 +1129,25 @@ JL_DLLEXPORT void jl_finalize(jl_value_t *o);
 JL_DLLEXPORT void *jl_malloc_stack(size_t *bufsz, struct _jl_task_t *owner) JL_NOTSAFEPOINT;
 JL_DLLEXPORT void jl_free_stack(void *stkbuf, size_t bufsz);
 
+// Allocates a new weak-reference, assigns its value and increments Julia allocation
+// counters. If thread-local allocators are used, then this function should allocate in the
+// thread-local allocator of the current thread.
+JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref(jl_value_t *value);
+
 // GC write barriers
 
 STATIC_INLINE void jl_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOINT
 {
     // parent and ptr isa jl_value_t*
-    if (__unlikely(jl_astaggedvalue(parent)->bits.gc == 3 && // parent is old and not in remset
-                   (jl_astaggedvalue(ptr)->bits.gc & 1) == 0)) // ptr is young
+    if (__unlikely(jl_astaggedvalue(parent)->bits.gc == 3 /* GC_OLD_MARKED */ && // parent is old and not in remset
+                   (jl_astaggedvalue(ptr)->bits.gc & 1 /* GC_MARKED */) == 0)) // ptr is young
         jl_gc_queue_root((jl_value_t*)parent);
 }
 
 STATIC_INLINE void jl_gc_wb_back(const void *ptr) JL_NOTSAFEPOINT // ptr isa jl_value_t*
 {
     // if ptr is old
-    if (__unlikely(jl_astaggedvalue(ptr)->bits.gc == 3)) {
+    if (__unlikely(jl_astaggedvalue(ptr)->bits.gc == 3 /* GC_OLD_MARKED */)) {
         jl_gc_queue_root((jl_value_t*)ptr);
     }
 }
@@ -1227,7 +1233,7 @@ STATIC_INLINE jl_value_t *jl_svecset(
   0 = data is inlined
   1 = owns the gc-managed data, exclusively (will free it)
   2 = malloc-allocated pointer (does not own it)
-  3 = has a pointer to the object that owns the data pointer
+  3 = has a pointer to the String object that owns the data pointer (m must be isbits)
 */
 STATIC_INLINE int jl_genericmemory_how(jl_genericmemory_t *m) JL_NOTSAFEPOINT
 {
@@ -1243,8 +1249,6 @@ STATIC_INLINE int jl_genericmemory_how(jl_genericmemory_t *m) JL_NOTSAFEPOINT
 
 STATIC_INLINE jl_value_t *jl_genericmemory_owner(jl_genericmemory_t *m JL_PROPAGATES_ROOT) JL_NOTSAFEPOINT
 {
-    if (jl_genericmemory_how(m) == 3)
-        return jl_genericmemory_data_owner_field(m);
     return (jl_value_t*)m;
 }
 
@@ -1274,8 +1278,6 @@ STATIC_INLINE jl_value_t *jl_genericmemory_ptr_set(
     assert(i < m_->length);
     jl_atomic_store_release(((_Atomic(jl_value_t*)*)(m_->ptr)) + i, (jl_value_t*)x);
     if (x) {
-        if (jl_genericmemory_how(m_) == 3)
-            m = (void*)jl_genericmemory_data_owner_field(m_);
         jl_gc_wb(m, x);
     }
     return (jl_value_t*)x;
@@ -1848,6 +1850,7 @@ JL_DLLEXPORT jl_sym_t *jl_tagged_gensym(const char *str, size_t len);
 JL_DLLEXPORT jl_sym_t *jl_get_root_symbol(void);
 JL_DLLEXPORT jl_value_t *jl_get_binding_value(jl_binding_t *b JL_PROPAGATES_ROOT);
 JL_DLLEXPORT jl_value_t *jl_get_binding_value_if_const(jl_binding_t *b JL_PROPAGATES_ROOT);
+JL_DLLEXPORT jl_value_t *jl_get_binding_value_if_resolved(jl_binding_t *b JL_PROPAGATES_ROOT) JL_NOTSAFEPOINT;
 JL_DLLEXPORT jl_value_t *jl_get_binding_value_if_resolved_and_const(jl_binding_t *b JL_PROPAGATES_ROOT) JL_NOTSAFEPOINT;
 JL_DLLEXPORT jl_value_t *jl_declare_const_gf(jl_binding_t *b, jl_module_t *mod, jl_sym_t *name);
 JL_DLLEXPORT jl_method_t *jl_method_def(jl_svec_t *argdata, jl_methtable_t *mt, jl_code_info_t *f, jl_module_t *module);
@@ -2260,6 +2263,7 @@ typedef struct _jl_excstack_t jl_excstack_t;
 typedef struct _jl_handler_t {
     jl_jmp_buf eh_ctx;
     jl_gcframe_t *gcstack;
+    jl_value_t *scope;
     struct _jl_handler_t *prev;
     int8_t gc_state;
     size_t locks_len;
@@ -2533,6 +2537,8 @@ JL_DLLEXPORT ssize_t jl_sizeof_jl_options(void);
 JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp);
 JL_DLLEXPORT char *jl_format_filename(const char *output_pattern);
 
+uint64_t parse_heap_size_hint(const char *optarg, const char *option_name);
+
 // Set julia-level ARGS array according to the arguments provided in
 // argc/argv
 JL_DLLEXPORT void jl_set_ARGS(int argc, char **argv);
@@ -2593,6 +2599,9 @@ JL_DLLEXPORT int jl_generating_output(void) JL_NOTSAFEPOINT;
 #define JL_OPTIONS_HANDLE_SIGNALS_ON 1
 #define JL_OPTIONS_HANDLE_SIGNALS_OFF 0
 
+#define JL_OPTIONS_USE_EXPERIMENTAL_FEATURES_YES 1
+#define JL_OPTIONS_USE_EXPERIMENTAL_FEATURES_NO 0
+
 #define JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_YES 1
 #define JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_NO 0
 
@@ -2641,8 +2650,6 @@ JL_DLLEXPORT void jl_set_safe_restore(jl_jmp_buf *) JL_NOTSAFEPOINT;
 // codegen interface ----------------------------------------------------------
 // The root propagation here doesn't have to be literal, but callers should
 // ensure that the return value outlives the MethodInstance
-typedef jl_value_t *(*jl_codeinstance_lookup_t)(jl_method_instance_t *mi JL_PROPAGATES_ROOT,
-    size_t min_world, size_t max_world);
 typedef struct {
     int track_allocations;  // can we track allocations?
     int code_coverage;      // can we measure coverage?
@@ -2658,8 +2665,6 @@ typedef struct {
 
     int use_jlplt; // Whether to use the Julia PLT mechanism or emit symbols directly
     int trim; // can we emit dynamic dispatches?
-    // Cache access. Default: jl_rettype_inferred_native.
-    jl_codeinstance_lookup_t lookup;
 } jl_cgparams_t;
 extern JL_DLLEXPORT int jl_default_debug_info_kind;
 extern JL_DLLEXPORT jl_cgparams_t jl_default_cgparams;
