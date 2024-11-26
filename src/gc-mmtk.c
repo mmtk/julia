@@ -1,5 +1,3 @@
-#ifdef MMTK_GC
-
 #include "gc-common.h"
 #include "mmtkMutator.h"
 #include "gc-mmtk.h"
@@ -1104,7 +1102,7 @@ void jl_gc_notify_image_load(const char* img_data, size_t len)
     mmtk_set_vm_space((void*)img_data, len);
 }
 
-void jl_gc_notify_image_alloc(char* img_data, size_t len)
+void jl_gc_notify_image_alloc(const char* img_data, size_t len)
 {
     mmtk_immortal_region_post_alloc((void*)img_data, len);
 }
@@ -1240,5 +1238,3 @@ JL_DLLEXPORT jl_value_t *jl_gc_internal_obj_base_ptr(void *p)
 #ifdef __cplusplus
 }
 #endif
-
-#endif // MMTK_GC

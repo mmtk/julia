@@ -1,6 +1,5 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
-#ifndef MMTK_GC
 #include "gc-common.h"
 #include "gc-stock.h"
 #include "gc-alloc-profiler.h"
@@ -4003,5 +4002,3 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
 #ifdef __cplusplus
 }
 #endif
-
-#endif // !MMTK_GC
