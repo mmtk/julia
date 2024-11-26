@@ -118,7 +118,12 @@ ifeq ($(USE_SYSTEM_LIBUV),0)
 UV_HEADERS += uv.h
 UV_HEADERS += uv/*.h
 endif
-PUBLIC_HEADERS := $(BUILDDIR)/julia_version.h $(wildcard $(SRCDIR)/support/*.h) $(addprefix $(SRCDIR)/,work-stealing-queue.h gc-interface.h gc-tls.h gc-tls-common.h gc-tls-mmtk.h julia.h julia_assert.h julia_threads.h julia_fasttls.h julia_locks.h julia_atomics.h jloptions.h)
+PUBLIC_HEADERS := $(BUILDDIR)/julia_version.h $(wildcard $(SRCDIR)/support/*.h) $(addprefix $(SRCDIR)/,work-stealing-queue.h gc-interface.h gc-tls-common.h julia.h julia_assert.h julia_threads.h julia_fasttls.h julia_locks.h julia_atomics.h jloptions.h)
+ifeq ($(WITH_MMTK), 1)
+	PUBLIC_HEADERS += $(addprefix $(SRCDIR)/,gc-tls-mmtk.h)
+else
+	PUBLIC_HEADERS += $(addprefix $(SRCDIR)/,gc-tls-stock.h)
+endif
 ifeq ($(OS),WINNT)
 PUBLIC_HEADERS += $(addprefix $(SRCDIR)/,win32_ucontext.h)
 endif
