@@ -4004,7 +4004,7 @@ JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT
     jl_unreachable();
 }
 
-JL_DLLEXPORT void jl_gc_preserve_end_hook(int n, ...) JL_NOTSAFEPOINT
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
 {
     jl_unreachable();
 }
