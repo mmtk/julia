@@ -1,5 +1,3 @@
-#ifdef MMTK_GC
-
 #include "gc-common.h"
 #include "mmtkMutator.h"
 #include "gc-mmtk.h"
@@ -309,6 +307,11 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
 // ========================================================================= //
 // GC Statistics
 // ========================================================================= //
+
+JL_DLLEXPORT const char* jl_active_gc_impl(void) {
+    const char* mmtk_version = get_mmtk_version();
+    return mmtk_version;
+}
 
 int64_t last_gc_total_bytes = 0;
 int64_t last_live_bytes = 0; // live_bytes at last collection
@@ -1104,7 +1107,7 @@ void jl_gc_notify_image_load(const char* img_data, size_t len)
     mmtk_set_vm_space((void*)img_data, len);
 }
 
-void jl_gc_notify_image_alloc(char* img_data, size_t len)
+void jl_gc_notify_image_alloc(const char* img_data, size_t len)
 {
     mmtk_immortal_region_post_alloc((void*)img_data, len);
 }
@@ -1287,5 +1290,3 @@ JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
 #ifdef __cplusplus
 }
 #endif
-
-#endif // MMTK_GC

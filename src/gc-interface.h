@@ -100,6 +100,8 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection);
 JL_DLLEXPORT int gc_is_collector_thread(int tid) JL_NOTSAFEPOINT;
 // Pinning objects; Returns whether the object has been pinned by this call.
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
+// Returns the version of which GC implementation is being used according to the list of supported GCs
+JL_DLLEXPORT const char* jl_active_gc_impl(void);
 
 // TODO: The preserve hook functions may be temporary. We should see the performance impact of the change.
 
@@ -211,7 +213,7 @@ void jl_gc_notify_image_load(const char* img_data, size_t len);
 // This function notifies the GC about memory addresses that are set when allocating the boot image.
 // The GC may use that information to, for instance, determine that all objects in that chunk of memory should
 // be treated as marked and belonged to the old generation in nursery collections.
-void jl_gc_notify_image_alloc(char* img_data, size_t len);
+void jl_gc_notify_image_alloc(const char* img_data, size_t len);
 
 // ========================================================================= //
 // Runtime Write-Barriers
