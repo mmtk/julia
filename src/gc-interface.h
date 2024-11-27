@@ -206,7 +206,7 @@ void jl_gc_notify_image_load(const char* img_data, size_t len);
 // This function notifies the GC about memory addresses that are set when allocating the boot image.
 // The GC may use that information to, for instance, determine that all objects in that chunk of memory should
 // be treated as marked and belonged to the old generation in nursery collections.
-void jl_gc_notify_image_alloc(char* img_data, size_t len);
+void jl_gc_notify_image_alloc(const char* img_data, size_t len);
 
 // ========================================================================= //
 // Runtime Write-Barriers
