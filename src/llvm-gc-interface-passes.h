@@ -43,7 +43,6 @@
 #include "julia.h"
 #include "julia_internal.h"
 #include "julia_assert.h"
-#include "gc-interface.h"
 #include "llvm-pass-helpers.h"
 #include <map>
 #include <string>
@@ -361,7 +360,7 @@ private:
     void PlaceGCFrameStores(State &S, unsigned MinColorRoot, ArrayRef<int> Colors, Value *GCFrame);
     void PlaceRootsAndUpdateCalls(SmallVectorImpl<int> &Colors, State &S, std::map<Value *, std::pair<int, int>>);
     void CleanupWriteBarriers(Function &F, State *S, const SmallVector<CallInst*, 0> &WriteBarriers, bool *CFGModified);
-    void cleanupGCPreserve(Function &F, CallInst *CI, Value *callee, Type *T_size);
+    void CleanupGCPreserve(Function &F, CallInst *CI, Value *callee, Type *T_size);
     bool CleanupIR(Function &F, State *S, bool *CFGModified);
     void NoteUseChain(State &S, BBState &BBS, User *TheUser);
     SmallVector<int, 1> GetPHIRefinements(PHINode *phi, State &S);

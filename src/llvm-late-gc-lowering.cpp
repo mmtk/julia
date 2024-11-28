@@ -2085,7 +2085,7 @@ bool LateLowerGCFrame::CleanupIR(Function &F, State *S, bool *CFGModified) {
                 /* No replacement */
             } else if (callee && (callee == gc_preserve_begin_func
                         || callee == gc_preserve_end_func)) {
-                cleanupGCPreserve(F, CI, callee, T_size);
+                CleanupGCPreserve(F, CI, callee, T_size);
             } else if (pointer_from_objref_func != nullptr && callee == pointer_from_objref_func) {
                 auto *obj = CI->getOperand(0);
                 auto *ASCI = new AddrSpaceCastInst(obj, CI->getType(), "", CI);

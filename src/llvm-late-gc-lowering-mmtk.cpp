@@ -1,6 +1,6 @@
 #include "llvm-gc-interface-passes.h"
 
-void LateLowerGCFrame::cleanupGCPreserve(Function &F, CallInst *CI, Value *callee, Type *T_size) {
+void LateLowerGCFrame::CleanupGCPreserve(Function &F, CallInst *CI, Value *callee, Type *T_size) {
     if (callee == gc_preserve_begin_func) {
         // Initialize an IR builder.
         IRBuilder<> builder(CI);
