@@ -103,6 +103,13 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
 // Returns the version of which GC implementation is being used according to the list of supported GCs
 JL_DLLEXPORT const char* jl_active_gc_impl(void);
 
+// TODO: The preserve hook functions may be temporary. We should see the performance impact of the change.
+
+// Runtime hook for gc preserve begin. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT;
+// Runtime hook for gc preserve end. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT;
+
 // ========================================================================= //
 // Metrics
 // ========================================================================= //

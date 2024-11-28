@@ -3999,6 +3999,16 @@ JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFE
 {
 }
 
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
 JL_DLLEXPORT const char* jl_active_gc_impl(void) {
     return "";
 }
