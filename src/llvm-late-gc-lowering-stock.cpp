@@ -1,6 +1,5 @@
 #include "llvm-gc-interface-passes.h"
 
-bool LateLowerGCFrameCustom::runOnFunction(Function &F, bool *CFGModified) {
-    need_gc_preserve_hook = 0;
-    return LateLowerGCFrame::runOnFunction(F, CFGModified);
+void LateLowerGCFrame::cleanupGCPreserve(Function &F, CallInst *CI, Value *callee, Type *T_size) {
+    // Do nothing for the stock GC
 }
