@@ -241,8 +241,16 @@ static void jl_ci_cache_lookup(const jl_cgparams_t &cgparams, jl_method_instance
         jl_method_t *def = codeinst->def->def.method;
         if ((jl_value_t*)*src_out == jl_nothing)
             *src_out = NULL;
-        if (*src_out && jl_is_method(def))
-            *src_out = jl_uncompress_ir(def, codeinst, (jl_array_t*)*src_out);
+        if (*src_out && jl_is_method(def)) {
+            PTR_PIN(def);
+            PTR_PIN(codeinst);
+            PTR_PIN(*src_out);
+            auto temp = jl_uncompress_ir(def, codeinst, (jl_array_t*)*src_out);
+            PTR_UNPIN(*src_out);
+            *src_out = temp;
+            PTR_UNPIN(codeinst);
+            PTR_UNPIN(def);
+        }
     }
     if (*src_out == NULL || !jl_is_code_info(*src_out)) {
         if (cgparams.lookup != jl_rettype_inferred) {
@@ -251,7 +259,10 @@ static void jl_ci_cache_lookup(const jl_cgparams_t &cgparams, jl_method_instance
         else {
             *src_out = jl_type_infer(mi, world, 0);
             if (*src_out) {
-                codeinst = jl_get_method_inferred(mi, (*src_out)->rettype, (*src_out)->min_world, (*src_out)->max_world);
+                auto rettype = (*src_out)->rettype;
+                PTR_PIN(rettype);
+                codeinst = jl_get_method_inferred(mi, rettype, (*src_out)->min_world, (*src_out)->max_world);
+                PTR_UNPIN(rettype);
                 if ((*src_out)->inferred) {
                     jl_value_t *null = nullptr;
                     jl_atomic_cmpswap_relaxed(&codeinst->inferred, &null, jl_nothing);
@@ -322,11 +333,22 @@ void *jl_create_native_impl(jl_array_t *methods, LLVMOrcThreadSafeModuleRef llvm
             // to compile, or an svec(rettype, sig) describing a C-callable alias to create.
             jl_value_t *item = jl_array_ptr_ref(methods, i);
             if (jl_is_simplevector(item)) {
-                if (worlds == 1)
-                    jl_compile_extern_c(wrap(&clone), &params, NULL, jl_svecref(item, 0), jl_svecref(item, 1));
+                if (worlds == 1) {
+                    // warp is not a safepoint, but it is a function defined in LLVM. We cannot persuade GCChecker that item won't be moved.
+                    PTR_PIN(item);
+                    auto el0 = jl_svecref(item, 0);
+                    auto el1 = jl_svecref(item, 1);
+                    PTR_PIN(el0);
+                    PTR_PIN(el1);
+                    jl_compile_extern_c(wrap(&clone), &params, NULL, el0, el1);
+                    PTR_UNPIN(el1);
+                    PTR_UNPIN(el0);
+                    PTR_UNPIN(item);
+                }
                 continue;
             }
             mi = (jl_method_instance_t*)item;
+            PTR_PIN(mi);
             src = NULL;
             // if this method is generally visible to the current compilation world,
             // and this is either the primary world, or not applicable in the primary world
@@ -338,15 +360,18 @@ void *jl_create_native_impl(jl_array_t *methods, LLVMOrcThreadSafeModuleRef llvm
                 if (src && !emitted.count(codeinst)) {
                     // now add it to our compilation results
                     JL_GC_PROMISE_ROOTED(codeinst->rettype);
+                    PTR_PIN(codeinst->rettype);
                     orc::ThreadSafeModule result_m = jl_create_ts_module(name_from_method_instance(codeinst->def),
                             params.tsctx, params.imaging,
                             clone.getModuleUnlocked()->getDataLayout(),
                             Triple(clone.getModuleUnlocked()->getTargetTriple()));
                     jl_llvm_functions_t decls = jl_emit_code(result_m, mi, src, codeinst->rettype, params);
+                    PTR_UNPIN(codeinst->rettype);
                     if (result_m)
                         emitted[codeinst] = {std::move(result_m), std::move(decls)};
                 }
             }
+            PTR_UNPIN(mi);
         }
 
         // finally, make sure all referenced methods also get compiled or fixed up
@@ -1042,8 +1067,11 @@ void jl_add_optimization_passes_impl(LLVMPassManagerRef PM, int opt_level, int l
 extern "C" JL_DLLEXPORT
 void jl_get_llvmf_defn_impl(jl_llvmf_dump_t* dump, jl_method_instance_t *mi, size_t world, char getwrapper, char optimize, const jl_cgparams_t params)
 {
-    if (jl_is_method(mi->def.method) && mi->def.method->source == NULL &&
-            mi->def.method->generator == NULL) {
+    // Extract this as a new var, otherwise GCChecker won't work correctly.
+    auto method = mi->def.method;
+    PTR_PIN(method);
+    if (jl_is_method(method) && method->source == NULL &&
+            method->generator == NULL) {
         // not a generic function
         dump->F = NULL;
         return;
@@ -1053,27 +1081,29 @@ void jl_get_llvmf_defn_impl(jl_llvmf_dump_t* dump, jl_method_instance_t *mi, siz
     jl_value_t *jlrettype = (jl_value_t*)jl_any_type;
     jl_code_info_t *src = NULL;
     JL_GC_PUSH2(&src, &jlrettype);
-    if (jl_is_method(mi->def.method) && mi->def.method->source != NULL && jl_ir_flag_inferred((jl_array_t*)mi->def.method->source)) {
-        src = (jl_code_info_t*)mi->def.method->source;
+    if (jl_is_method(method) && method->source != NULL && jl_ir_flag_inferred((jl_array_t*)method->source)) {
+        src = (jl_code_info_t*)method->source;
         if (src && !jl_is_code_info(src))
-            src = jl_uncompress_ir(mi->def.method, NULL, (jl_array_t*)src);
+            src = jl_uncompress_ir(method, NULL, (jl_array_t*)src);
     } else {
         jl_value_t *ci = jl_rettype_inferred(mi, world, world);
         if (ci != jl_nothing) {
             jl_code_instance_t *codeinst = (jl_code_instance_t*)ci;
+            PTR_PIN(codeinst);
             src = (jl_code_info_t*)jl_atomic_load_relaxed(&codeinst->inferred);
-            if ((jl_value_t*)src != jl_nothing && !jl_is_code_info(src) && jl_is_method(mi->def.method))
-                src = jl_uncompress_ir(mi->def.method, codeinst, (jl_array_t*)src);
+            if ((jl_value_t*)src != jl_nothing && !jl_is_code_info(src) && jl_is_method(method))
+                src = jl_uncompress_ir(method, codeinst, (jl_array_t*)src);
             jlrettype = codeinst->rettype;
+            PTR_UNPIN(codeinst);
         }
         if (!src || (jl_value_t*)src == jl_nothing) {
             src = jl_type_infer(mi, world, 0);
             if (src)
                 jlrettype = src->rettype;
-            else if (jl_is_method(mi->def.method)) {
-                src = mi->def.method->generator ? jl_code_for_staged(mi) : (jl_code_info_t*)mi->def.method->source;
-                if (src && !jl_is_code_info(src) && jl_is_method(mi->def.method))
-                    src = jl_uncompress_ir(mi->def.method, NULL, (jl_array_t*)src);
+            else if (jl_is_method(method)) {
+                src = method->generator ? jl_code_for_staged(mi) : (jl_code_info_t*)method->source;
+                if (src && !jl_is_code_info(src) && jl_is_method(method))
+                    src = jl_uncompress_ir(method, NULL, (jl_array_t*)src);
             }
             // TODO: use mi->uninferred
         }
@@ -1125,6 +1155,7 @@ void jl_get_llvmf_defn_impl(jl_llvmf_dump_t* dump, jl_method_instance_t *mi, siz
                 fname = &decls.functionObject;
             F = cast<Function>(m.getModuleUnlocked()->getNamedValue(*fname));
         }
+        PTR_UNPIN(method);
         JL_GC_POP();
         if (measure_compile_time_enabled) {
             auto end = jl_hrtime();
