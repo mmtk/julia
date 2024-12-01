@@ -229,7 +229,7 @@ static void makeSafeName(GlobalObject &G)
         G.setName(StringRef(SafeName.data(), SafeName.size()));
 }
 
-static void jl_ci_cache_lookup(const jl_cgparams_t &cgparams, jl_method_instance_t *mi, size_t world, jl_code_instance_t **ci_out, jl_code_info_t **src_out)
+static void jl_ci_cache_lookup(const jl_cgparams_t &cgparams, jl_method_instance_t *mi JL_REQUIRE_PIN, size_t world, jl_code_instance_t **ci_out, jl_code_info_t **src_out)
 {
     ++CICacheLookups;
     jl_value_t *ci = cgparams.lookup(mi, world, world);
@@ -274,6 +274,7 @@ void replaceUsesWithLoad(Function &F, function_ref<GlobalVariable *(Instruction 
 extern "C" JL_DLLEXPORT
 void *jl_create_native_impl(jl_array_t *methods, LLVMOrcThreadSafeModuleRef llvmmod, const jl_cgparams_t *cgparams, int _policy, int _imaging_mode, int _external_linkage, size_t _world)
 {
+    PTR_PIN(methods);
     ++CreateNativeCalls;
     CreateNativeMax.updateMax(jl_array_len(methods));
     if (cgparams == NULL)
@@ -321,12 +322,16 @@ void *jl_create_native_impl(jl_array_t *methods, LLVMOrcThreadSafeModuleRef llvm
             // each item in this list is either a MethodInstance indicating something
             // to compile, or an svec(rettype, sig) describing a C-callable alias to create.
             jl_value_t *item = jl_array_ptr_ref(methods, i);
+            PTR_PIN(item);
             if (jl_is_simplevector(item)) {
                 if (worlds == 1)
                     jl_compile_extern_c(wrap(&clone), &params, NULL, jl_svecref(item, 0), jl_svecref(item, 1));
+                PTR_UNPIN(item);
                 continue;
             }
+            PTR_UNPIN(item);
             mi = (jl_method_instance_t*)item;
+            PTR_PIN(mi);
             src = NULL;
             // if this method is generally visible to the current compilation world,
             // and this is either the primary world, or not applicable in the primary world
@@ -338,20 +343,24 @@ void *jl_create_native_impl(jl_array_t *methods, LLVMOrcThreadSafeModuleRef llvm
                 if (src && !emitted.count(codeinst)) {
                     // now add it to our compilation results
                     JL_GC_PROMISE_ROOTED(codeinst->rettype);
+                    PTR_PIN(codeinst->rettype);
                     orc::ThreadSafeModule result_m = jl_create_ts_module(name_from_method_instance(codeinst->def),
                             params.tsctx, params.imaging,
                             clone.getModuleUnlocked()->getDataLayout(),
                             Triple(clone.getModuleUnlocked()->getTargetTriple()));
                     jl_llvm_functions_t decls = jl_emit_code(result_m, mi, src, codeinst->rettype, params);
+                    PTR_UNPIN(codeinst->rettype);
                     if (result_m)
                         emitted[codeinst] = {std::move(result_m), std::move(decls)};
                 }
             }
+            PTR_UNPIN(mi);
         }
 
         // finally, make sure all referenced methods also get compiled or fixed up
         jl_compile_workqueue(emitted, *clone.getModuleUnlocked(), params, policy);
     }
+    PTR_UNPIN(methods);
     JL_UNLOCK(&jl_codegen_lock); // Might GC
     JL_GC_POP();
 
@@ -1049,31 +1058,38 @@ void jl_get_llvmf_defn_impl(jl_llvmf_dump_t* dump, jl_method_instance_t *mi, siz
         return;
     }
 
+    jl_method_t *method = mi->def.method;
+    PTR_PIN(mi);
+    PTR_PIN(method);
     // get the source code for this function
     jl_value_t *jlrettype = (jl_value_t*)jl_any_type;
     jl_code_info_t *src = NULL;
     JL_GC_PUSH2(&src, &jlrettype);
-    if (jl_is_method(mi->def.method) && mi->def.method->source != NULL && jl_ir_flag_inferred((jl_array_t*)mi->def.method->source)) {
-        src = (jl_code_info_t*)mi->def.method->source;
+    if (jl_is_method(method) && method->source != NULL && jl_ir_flag_inferred((jl_array_t*)method->source)) {
+        src = (jl_code_info_t*)method->source;
         if (src && !jl_is_code_info(src))
-            src = jl_uncompress_ir(mi->def.method, NULL, (jl_array_t*)src);
+            src = jl_uncompress_ir(method, NULL, (jl_array_t*)src);
     } else {
         jl_value_t *ci = jl_rettype_inferred(mi, world, world);
         if (ci != jl_nothing) {
             jl_code_instance_t *codeinst = (jl_code_instance_t*)ci;
             src = (jl_code_info_t*)jl_atomic_load_relaxed(&codeinst->inferred);
-            if ((jl_value_t*)src != jl_nothing && !jl_is_code_info(src) && jl_is_method(mi->def.method))
-                src = jl_uncompress_ir(mi->def.method, codeinst, (jl_array_t*)src);
+            if ((jl_value_t*)src != jl_nothing && !jl_is_code_info(src) && jl_is_method(method)) {
+                PTR_PIN(codeinst);
+                src = jl_uncompress_ir(method, codeinst, (jl_array_t*)src);
+                PTR_UNPIN(codeinst);
+            }
             jlrettype = codeinst->rettype;
+
         }
         if (!src || (jl_value_t*)src == jl_nothing) {
             src = jl_type_infer(mi, world, 0);
             if (src)
                 jlrettype = src->rettype;
-            else if (jl_is_method(mi->def.method)) {
-                src = mi->def.method->generator ? jl_code_for_staged(mi) : (jl_code_info_t*)mi->def.method->source;
-                if (src && !jl_is_code_info(src) && jl_is_method(mi->def.method))
-                    src = jl_uncompress_ir(mi->def.method, NULL, (jl_array_t*)src);
+            else if (jl_is_method(method)) {
+                src = method->generator ? jl_code_for_staged(mi) : (jl_code_info_t*)method->source;
+                if (src && !jl_is_code_info(src) && jl_is_method(method))
+                    src = jl_uncompress_ir(method, NULL, (jl_array_t*)src);
             }
             // TODO: use mi->uninferred
         }
@@ -1133,10 +1149,14 @@ void jl_get_llvmf_defn_impl(jl_llvmf_dump_t* dump, jl_method_instance_t *mi, siz
         if (F) {
             dump->TSM = wrap(new orc::ThreadSafeModule(std::move(m)));
             dump->F = wrap(F);
+            PTR_UNPIN(mi);
+            PTR_UNPIN(method);
             return;
         }
     }
 
     const char *mname = name_from_method_instance(mi);
+    PTR_UNPIN(mi);
+    PTR_UNPIN(method);
     jl_errorf("unable to compile source for function %s", mname);
 }
