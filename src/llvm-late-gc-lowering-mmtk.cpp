@@ -134,7 +134,7 @@ Value* LateLowerGCFrame::lowerGCAllocBytesLate(CallInst *target, Function &F)
                 auto v_as_ptr = builder.CreateIntToPtr(v_raw, smallAllocFunc->getReturnType());
 
                 // Post alloc
-                if (1) {
+                if (MMTK_NEEDS_VO_BIT) {
                     auto intptr_ty = Type::getInt64Ty(target->getContext());
                     auto i8_ty = Type::getInt8Ty(F.getContext());
                     intptr_t metadata_base_address = reinterpret_cast<intptr_t>(MMTK_SIDE_VO_BIT_BASE_ADDRESS);

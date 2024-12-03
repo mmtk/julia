@@ -3839,7 +3839,7 @@ jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
 jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT
 {
     jl_taggedvalue_t *tag = (jl_taggedvalue_t*)jl_gc_perm_alloc(sz, 0, sizeof(void*), 0);
-    jl_value_t *sym = (jl_sym_t*)jl_valueof(tag);
+    jl_value_t *sym = jl_valueof(tag);
     // set to old marked so that we won't look at it in the GC or write barrier.
     jl_set_typetagof(sym, jl_symbol_tag, GC_OLD_MARKED);
     return sym;

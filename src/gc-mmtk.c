@@ -860,6 +860,19 @@ inline void* bump_alloc_fast(MMTkMutatorContext* mutator, uintptr_t* cursor, uin
     }
 }
 
+inline void mmtk_set_side_metadata(const void* side_metadata_base, void* obj) {
+        intptr_t addr = (intptr_t) obj;
+        uint8_t* meta_addr = (uint8_t*) side_metadata_base + (addr >> 6);
+        intptr_t shift = (addr >> 3) & 0b111;
+        while(1) {
+            uint8_t old_val = *meta_addr;
+            uint8_t new_val = old_val | (1 << shift);
+            if (jl_atomic_cmpswap((_Atomic(uint8_t)*)meta_addr, &old_val, new_val)) {
+                break;
+            }
+        }
+}
+
 inline void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     ImmixAllocator* allocator = &mutator->allocators.immix[MMTK_DEFAULT_IMMIX_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 0);
@@ -874,19 +887,6 @@ inline void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, s
 inline void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     BumpAllocator* allocator = &mutator->allocators.bump_pointer[MMTK_IMMORTAL_BUMP_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (uintptr_t)allocator->limit, size, align, offset, 1);
-}
-
-inline void mmtk_set_side_metadata(void* side_metadata_base, void* obj) {
-        intptr_t addr = (intptr_t) obj;
-        uint8_t* meta_addr = (uint8_t*) side_metadata_base + (addr >> 6);
-        intptr_t shift = (addr >> 3) & 0b111;
-        while(1) {
-            uint8_t old_val = *meta_addr;
-            uint8_t new_val = old_val | (1 << shift);
-            if (jl_atomic_cmpswap((_Atomic(uint8_t)*)meta_addr, &old_val, new_val)) {
-                break;
-            }
-        }
 }
 
 inline void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
@@ -1077,7 +1077,7 @@ jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
 jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT
 {
     jl_taggedvalue_t *tag = (jl_taggedvalue_t*)jl_gc_perm_alloc(sz, 0, sizeof(void*), 0);
-    jl_value_t *sym = (jl_sym_t*)jl_valueof(tag);
+    jl_value_t *sym = jl_valueof(tag);
     jl_ptls_t ptls = jl_current_task->ptls;
     jl_set_typetagof(sym, jl_symbol_tag, 0);
     mmtk_immortal_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, sym, sz);
