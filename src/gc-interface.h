@@ -204,7 +204,9 @@ JL_DLLEXPORT void *jl_gc_perm_alloc(size_t sz, int zero, unsigned align,
 // immortal region that is never swept. The second parameter specifies the type of the
 // object being allocated and will be used to set the object header.
 struct _jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT;
-
+// permanently allocates a symbol (jl_sym_t). The object needs to be word aligned,
+// and tagged with jl_sym_tag.
+struct _jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT;
 // This function notifies the GC about memory addresses that are set when loading the boot image.
 // The GC may use that information to, for instance, determine that all objects in that chunk of memory should
 // be treated as marked and belonged to the old generation in nursery collections.

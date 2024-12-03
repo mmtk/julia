@@ -1074,6 +1074,16 @@ jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
     return jl_valueof(o);
 }
 
+jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT
+{
+    jl_taggedvalue_t *tag = (jl_taggedvalue_t*)jl_gc_perm_alloc(sz, 0, sizeof(void*), 0);
+    jl_value_t *sym = (jl_sym_t*)jl_valueof(tag);
+    jl_ptls_t ptls = jl_current_task->ptls;
+    jl_set_typetagof(sym, jl_symbol_tag, 0);
+    mmtk_immortal_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, sym, sz);
+    return sym;
+}
+
 JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz)
 {
     jl_ptls_t ptls = jl_current_task->ptls;
