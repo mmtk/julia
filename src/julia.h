@@ -2748,7 +2748,13 @@ extern void mmtk_object_reference_write_slow(void* mutator, const void* parent, 
 #define MMTK_DEFAULT_IMMIX_ALLOCATOR (0)
 #define MMTK_IMMORTAL_BUMP_ALLOCATOR (0)
 
+// VO bit is required to support conservative stack scanning and moving.
+#define MMTK_NEEDS_VO_BIT (1)
+
+void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size);
+
 extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
+extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
 
 // Directly call into MMTk for write barrier (debugging only)
 STATIC_INLINE void mmtk_gc_wb_full(const void *parent, const void *ptr) JL_NOTSAFEPOINT
