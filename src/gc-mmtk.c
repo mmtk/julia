@@ -865,13 +865,10 @@ inline void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t size, siz
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 0);
 }
 
-inline void mmtk_immix_post_alloc_slow(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    mmtk_post_alloc(mutator, obj, size, 0);
-}
-
 inline void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    // FIXME: for now, we do nothing
-    // but when supporting moving, this is where we set the valid object (VO) bit
+    if (MMTK_NEEDS_VO_BIT) {
+        mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
+    }
 }
 
 inline void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
@@ -879,10 +876,9 @@ inline void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, 
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (uintptr_t)allocator->limit, size, align, offset, 1);
 }
 
-inline void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
+inline void mmtk_set_side_metadata(void* side_metadata_base, void* obj) {
         intptr_t addr = (intptr_t) obj;
-        uint8_t* meta_addr = (uint8_t*) (MMTK_SIDE_LOG_BIT_BASE_ADDRESS) + (addr >> 6);
+        uint8_t* meta_addr = (uint8_t*) side_metadata_base + (addr >> 6);
         intptr_t shift = (addr >> 3) & 0b111;
         while(1) {
             uint8_t old_val = *meta_addr;
@@ -891,6 +887,15 @@ inline void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj
                 break;
             }
         }
+}
+
+inline void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
+        mmtk_set_side_metadata(MMTK_SIDE_LOG_BIT_BASE_ADDRESS, obj);
+    }
+
+    if (MMTK_NEEDS_VO_BIT) {
+        mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
     }
 }
 
