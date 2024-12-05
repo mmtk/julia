@@ -2930,7 +2930,6 @@ size_t jl_maxrss(void);
 // Only one thread should be running in this function
 static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
 {
-    jl_gc_notify_thread_yield(ptls, NULL);
     combine_thread_gc_counts(&gc_num, 1);
 
     // We separate the update of the graph from the update of live_bytes here
@@ -3362,6 +3361,11 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection)
         gc_cblist_pre_gc, (collection));
 
     if (!jl_atomic_load_acquire(&jl_gc_disable_counter)) {
+        // This thread will yield.
+        // jl_gc_notify_thread_yield does nothing for the stock GC at the point, but it may be non empty in the future,
+        // and this is a place where we should call jl_gc_notify_thread_yield.
+        // TODO: This call can be removed if requested.
+        jl_gc_notify_thread_yield(ptls, NULL);
         JL_LOCK_NOGC(&finalizers_lock); // all the other threads are stopped, so this does not make sense, right? otherwise, failing that, this seems like plausibly a deadlock
 #ifndef __clang_gcanalyzer__
         if (_jl_gc_collect(ptls, collection)) {
