@@ -2930,6 +2930,7 @@ size_t jl_maxrss(void);
 // Only one thread should be running in this function
 static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
 {
+    jl_gc_notify_thread_yield(ptls, NULL);
     combine_thread_gc_counts(&gc_num, 1);
 
     // We separate the update of the graph from the update of live_bytes here
@@ -4020,6 +4021,10 @@ JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
 
 JL_DLLEXPORT const char* jl_active_gc_impl(void) {
     return "";
+}
+
+JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx) {
+    // Do nothing before a thread yields
 }
 
 #ifdef __cplusplus
