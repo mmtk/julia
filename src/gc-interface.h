@@ -102,6 +102,9 @@ JL_DLLEXPORT int gc_is_collector_thread(int tid) JL_NOTSAFEPOINT;
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
 // Returns the version of which GC implementation is being used according to the list of supported GCs
 JL_DLLEXPORT const char* jl_active_gc_impl(void);
+// Notifies the GC that the given thread is about to yield for a GC. ctx is the ucontext for the thread
+// if it is already fetched by the caller, otherwise it is NULL.
+JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx);
 
 // TODO: The preserve hook functions may be temporary. We should see the performance impact of the change.
 
