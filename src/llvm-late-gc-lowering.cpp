@@ -1812,7 +1812,7 @@ JL_USED_FUNC static void dumpColorAssignments(const State &S, const ArrayRef<int
     }
 }
 
-SmallVector<int, 0> LateLowerGCFrame::ColorRoots(const State &S) {
+std::pair<SmallVector<int, 0>, int> LateLowerGCFrame::ColorRoots(const State &S) {
     SmallVector<int, 0> Colors;
     Colors.resize(S.MaxPtrNumber + 1, -1);
     PEOIterator Ordering(S.Neighbors);
@@ -1854,7 +1854,7 @@ SmallVector<int, 0> LateLowerGCFrame::ColorRoots(const State &S) {
         NewColor += PreAssignedColors;
         Colors[ActiveElement] = NewColor;
     }
-    return Colors;
+    return {Colors, PreAssignedColors};
 }
 
 // Size of T is assumed to be `sizeof(void*)`
@@ -1940,25 +1940,16 @@ void LateLowerGCFrame::CleanupWriteBarriers(Function &F, State *S, const SmallVe
         IRBuilder<> builder(CI);
         builder.SetCurrentDebugLocation(CI->getDebugLoc());
 #ifndef MMTK_GC
-        auto DebugInfoMeta = F.getParent()->getModuleFlag("julia.debug_level");
-        int debug_info = 1;
-        if (DebugInfoMeta != nullptr) {
-            debug_info = cast<ConstantInt>(cast<ConstantAsMetadata>(DebugInfoMeta)->getValue())->getZExtValue();
-        }
-        auto parBits = builder.CreateAnd(EmitLoadTag(builder, T_size, parent), GC_OLD_MARKED);
-        setName(parBits, "parent_bits", debug_info);
-        auto parOldMarked = builder.CreateICmpEQ(parBits, ConstantInt::get(T_size, GC_OLD_MARKED));
-        setName(parOldMarked, "parent_old_marked", debug_info);
+        auto parBits = builder.CreateAnd(EmitLoadTag(builder, T_size, parent), GC_OLD_MARKED, "parent_bits");
+        auto parOldMarked = builder.CreateICmpEQ(parBits, ConstantInt::get(T_size, GC_OLD_MARKED), "parent_old_marked");
         auto mayTrigTerm = SplitBlockAndInsertIfThen(parOldMarked, CI, false);
         builder.SetInsertPoint(mayTrigTerm);
-        setName(mayTrigTerm->getParent(), "may_trigger_wb", debug_info);
+        mayTrigTerm->getParent()->setName("may_trigger_wb");
         Value *anyChldNotMarked = NULL;
         for (unsigned i = 1; i < CI->arg_size(); i++) {
             Value *child = CI->getArgOperand(i);
-            Value *chldBit = builder.CreateAnd(EmitLoadTag(builder, T_size, child), GC_MARKED);
-            setName(chldBit, "child_bit", debug_info);
-            Value *chldNotMarked = builder.CreateICmpEQ(chldBit, ConstantInt::get(T_size, 0),"child_not_marked");
-            setName(chldNotMarked, "child_not_marked", debug_info);
+            Value *chldBit = builder.CreateAnd(EmitLoadTag(builder, T_size, child), GC_MARKED, "child_bit");
+            Value *chldNotMarked = builder.CreateICmpEQ(chldBit, ConstantInt::get(T_size, 0), "child_not_marked");
             anyChldNotMarked = anyChldNotMarked ? builder.CreateOr(anyChldNotMarked, chldNotMarked) : chldNotMarked;
         }
         assert(anyChldNotMarked); // handled by all_of test above
@@ -1966,7 +1957,7 @@ void LateLowerGCFrame::CleanupWriteBarriers(Function &F, State *S, const SmallVe
         SmallVector<uint32_t, 2> Weights{1, 9};
         auto trigTerm = SplitBlockAndInsertIfThen(anyChldNotMarked, mayTrigTerm, false,
                                                   MDB.createBranchWeights(Weights));
-        setName(trigTerm->getParent(), "trigger_wb", debug_info);
+        trigTerm->getParent()->setName("trigger_wb");
         builder.SetInsertPoint(trigTerm);
         if (CI->getCalledOperand() == write_barrier_func) {
             builder.CreateCall(getOrDeclare(jl_intrinsics::queueGCRoot), parent);
@@ -2010,12 +2001,17 @@ void LateLowerGCFrame::CleanupWriteBarriers(Function &F, State *S, const SmallVe
                     // object_reference_write_slow_call((void*) src, (void*) slot, (void*) target);
                     MDBuilder MDB(F.getContext());
                     SmallVector<uint32_t, 2> Weights{1, 9};
-                    if (!S->DT) {
-                        S->DT = &GetDT();
+                    if (S) {
+                        if (!S->DT) {
+                            S->DT = &GetDT();
+                        }
+                        DomTreeUpdater dtu = DomTreeUpdater(S->DT, llvm::DomTreeUpdater::UpdateStrategy::Lazy);
+                        auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights), &dtu);
+                        builder.SetInsertPoint(mayTriggerSlowpath);
+                    } else {
+                        auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights));
+                        builder.SetInsertPoint(mayTriggerSlowpath);
                     }
-                    DomTreeUpdater dtu = DomTreeUpdater(S->DT, llvm::DomTreeUpdater::UpdateStrategy::Lazy);
-                    auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights), &dtu);
-                    builder.SetInsertPoint(mayTriggerSlowpath);
                     builder.CreateCall(getOrDeclare(jl_intrinsics::writeBarrier1Slow), { parent });
                 } else {
                     Function *wb_func = getOrDeclare(jl_intrinsics::writeBarrier1);
@@ -2339,8 +2335,21 @@ void LateLowerGCFrame::PlaceGCFrameStore(State &S, unsigned R, unsigned MinColor
     new StoreInst(Val, slotAddress, InsertBefore);
 }
 
+void LateLowerGCFrame::PlaceGCFrameReset(State &S, unsigned R, unsigned MinColorRoot,
+                                         ArrayRef<int> Colors, Value *GCFrame,
+                                         Instruction *InsertBefore) {
+    // Get the slot address.
+    auto slotAddress = CallInst::Create(
+        getOrDeclare(jl_intrinsics::getGCFrameSlot),
+        {GCFrame, ConstantInt::get(Type::getInt32Ty(InsertBefore->getContext()), Colors[R] + MinColorRoot)},
+        "gc_slot_addr_" + StringRef(std::to_string(Colors[R] + MinColorRoot)), InsertBefore);
+    // Reset the slot to NULL.
+    Value *Val = ConstantPointerNull::get(T_prjlvalue);
+    new StoreInst(Val, slotAddress, InsertBefore);
+}
+
 void LateLowerGCFrame::PlaceGCFrameStores(State &S, unsigned MinColorRoot,
-                                          ArrayRef<int> Colors, Value *GCFrame)
+                                          ArrayRef<int> Colors, int PreAssignedColors, Value *GCFrame)
 {
     for (auto &BB : *S.F) {
         const BBState &BBS = S.BBStates[&BB];
@@ -2353,6 +2362,15 @@ void LateLowerGCFrame::PlaceGCFrameStores(State &S, unsigned MinColorRoot,
         for(auto rit = BBS.Safepoints.rbegin();
               rit != BBS.Safepoints.rend(); ++rit ) {
             const LargeSparseBitVector &NowLive = S.LiveSets[*rit];
+            // reset slots which are no longer alive
+            for (int Idx : *LastLive) {
+                if (Idx >= PreAssignedColors && !HasBitSet(NowLive, Idx)) {
+                    PlaceGCFrameReset(S, Idx, MinColorRoot, Colors, GCFrame,
+                      S.ReverseSafepointNumbering[*rit]);
+                }
+            }
+            // store values which are alive in this safepoint but
+            // haven't been stored in the GC frame before
             for (int Idx : NowLive) {
                 if (!HasBitSet(*LastLive, Idx)) {
                     PlaceGCFrameStore(S, Idx, MinColorRoot, Colors, GCFrame,
@@ -2364,7 +2382,7 @@ void LateLowerGCFrame::PlaceGCFrameStores(State &S, unsigned MinColorRoot,
     }
 }
 
-void LateLowerGCFrame::PlaceRootsAndUpdateCalls(SmallVectorImpl<int> &Colors, State &S,
+void LateLowerGCFrame::PlaceRootsAndUpdateCalls(ArrayRef<int> Colors, int PreAssignedColors, State &S,
                                                 std::map<Value *, std::pair<int, int>>) {
     auto F = S.F;
     auto T_int32 = Type::getInt32Ty(F->getContext());
@@ -2486,7 +2504,7 @@ void LateLowerGCFrame::PlaceRootsAndUpdateCalls(SmallVectorImpl<int> &Colors, St
         pushGcframe->setArgOperand(1, NRoots);
 
         // Insert GC frame stores
-        PlaceGCFrameStores(S, AllocaSlot - 2, Colors, gcframe);
+        PlaceGCFrameStores(S, AllocaSlot - 2, Colors, PreAssignedColors, gcframe);
         // Insert GCFrame pops
         for (auto &BB : *F) {
             if (isa<ReturnInst>(BB.getTerminator())) {
@@ -2512,9 +2530,9 @@ bool LateLowerGCFrame::runOnFunction(Function &F, bool *CFGModified) {
 
     State S = LocalScan(F);
     ComputeLiveness(S);
-    SmallVector<int, 0> Colors = ColorRoots(S);
+    auto Colors = ColorRoots(S);
     std::map<Value *, std::pair<int, int>> CallFrames; // = OptimizeCallFrames(S, Ordering);
-    PlaceRootsAndUpdateCalls(Colors, S, CallFrames);
+    PlaceRootsAndUpdateCalls(Colors.first, Colors.second, S, CallFrames);
     CleanupIR(F, &S, CFGModified);
 
 

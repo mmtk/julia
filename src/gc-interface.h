@@ -206,6 +206,11 @@ JL_DLLEXPORT void *jl_gc_perm_alloc(size_t sz, int zero, unsigned align,
 // object header must be included in the object size. This object is allocated in an
 // immortal region that is never swept. The second parameter specifies the type of the
 // object being allocated and will be used to set the object header.
+//
+// !!! warning: Because permanently allocated objects are not swept, the GC will not
+//              necessarily mark any objects that would have ordinarily been rooted by
+//              the allocated object. All objects stored in fields of this object
+//              must be either permanently allocated or have other roots.
 struct _jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT;
 // permanently allocates a symbol (jl_sym_t). The object needs to be word aligned,
 // and tagged with jl_sym_tag.
@@ -219,7 +224,6 @@ struct _jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT;
 // The GC may use that information to, for instance, determine that all objects in that chunk of memory should
 // be treated as marked and belonged to the old generation in nursery collections.
 void jl_gc_notify_image_load(const char* img_data, size_t len);
-
 // This function notifies the GC about memory addresses that are set when allocating the boot image.
 // The GC may use that information to, for instance, determine that all objects in that chunk of memory should
 // be treated as marked and belonged to the old generation in nursery collections.

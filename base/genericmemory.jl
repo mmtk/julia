@@ -84,17 +84,16 @@ function _unsetindex!(A::MemoryRef{T}) where T
     MemT = typeof(mem)
     arrayelem = datatype_arrayelem(MemT)
     elsz = datatype_layoutsize(MemT)
-    isboxed = 1; isunion = 2
+    isbits = 0; isboxed = 1; isunion = 2
+    arrayelem == isbits && datatype_pointerfree(T::DataType) && return A
     t = @_gc_preserve_begin mem
     p = Ptr{Ptr{Cvoid}}(@inbounds pointer(A))
     if arrayelem == isboxed
         Intrinsics.atomic_pointerset(p, C_NULL, :monotonic)
     elseif arrayelem != isunion
-        if !datatype_pointerfree(T::DataType)
-            for j = 1:Core.sizeof(Ptr{Cvoid}):elsz
-                # XXX: this violates memory ordering, since it writes more than one C_NULL to each
-                Intrinsics.atomic_pointerset(p + j - 1, C_NULL, :monotonic)
-            end
+        for j = 1:Core.sizeof(Ptr{Cvoid}):elsz
+            # XXX: this violates memory ordering, since it writes more than one C_NULL to each
+            Intrinsics.atomic_pointerset(p + j - 1, C_NULL, :monotonic)
         end
     end
     @_gc_preserve_end t
@@ -212,10 +211,8 @@ promote_rule(a::Type{Memory{T}}, b::Type{Memory{S}}) where {T,S} = el_same(promo
 
 ## Constructors ##
 
-if nameof(@__MODULE__) === :Base  # avoid method overwrite
 # constructors should make copies
 Memory{T}(x::AbstractArray{S,1}) where {T,S} = copyto_axcheck!(Memory{T}(undef, size(x)), x)
-end
 
 ## copying iterators to containers
 
