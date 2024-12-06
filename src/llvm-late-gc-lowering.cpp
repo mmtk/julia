@@ -2001,12 +2001,17 @@ void LateLowerGCFrame::CleanupWriteBarriers(Function &F, State *S, const SmallVe
                     // object_reference_write_slow_call((void*) src, (void*) slot, (void*) target);
                     MDBuilder MDB(F.getContext());
                     SmallVector<uint32_t, 2> Weights{1, 9};
-                    if (!S.DT) {
-                        S.DT = &GetDT();
+                    if (S) {
+                        if (!S->DT) {
+                            S->DT = &GetDT();
+                        }
+                        DomTreeUpdater dtu = DomTreeUpdater(S->DT, llvm::DomTreeUpdater::UpdateStrategy::Lazy);
+                        auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights), &dtu);
+                        builder.SetInsertPoint(mayTriggerSlowpath);
+                    } else {
+                        auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights));
+                        builder.SetInsertPoint(mayTriggerSlowpath);
                     }
-                    DomTreeUpdater dtu = DomTreeUpdater(S->DT, llvm::DomTreeUpdater::UpdateStrategy::Lazy);
-                    auto mayTriggerSlowpath = SplitBlockAndInsertIfThen(is_unlogged, CI, false, MDB.createBranchWeights(Weights), &dtu);
-                    builder.SetInsertPoint(mayTriggerSlowpath);
                     builder.CreateCall(getOrDeclare(jl_intrinsics::writeBarrier1Slow), { parent });
                 } else {
                     Function *wb_func = getOrDeclare(jl_intrinsics::writeBarrier1);
