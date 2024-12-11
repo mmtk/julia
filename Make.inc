@@ -80,6 +80,9 @@ HAVE_SSP := 0
 WITH_GC_VERIFY := 0
 WITH_GC_DEBUG_ENV := 0
 
+# Use stock if MMTK_PLAN hasn't been defined
+MMTK_PLAN ?= None
+
 # Enable DTrace support
 WITH_DTRACE := 0
 
@@ -829,7 +832,7 @@ JCXXFLAGS += -DGC_DEBUG_ENV
 JCFLAGS += -DGC_DEBUG_ENV
 endif
 
-ifneq ($(MMTK_PLAN), )
+ifneq (${MMTK_PLAN},None)
 ifeq (${MMTK_JULIA_DIR},)
 $(error MMTK_JULIA_DIR must be set to use MMTk)
 endif
@@ -1861,7 +1864,7 @@ PRINT_PERL = printf '    %b %b\n' $(PERLCOLOR)PERL$(ENDCOLOR) $(BINCOLOR)$(GOAL)
 PRINT_FLISP = printf '    %b %b\n' $(FLISPCOLOR)FLISP$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
 PRINT_JULIA = printf '    %b %b\n' $(JULIACOLOR)JULIA$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
 PRINT_DTRACE = printf '    %b %b\n' $(DTRACECOLOR)DTRACE$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
-ifneq ($(MMTK_PLAN), )
+ifneq (${MMTK_PLAN},None)
 PRINT_MMTK = printf '    %b %b\n' $(LINKCOLOR)MMTK$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
 endif
 
@@ -1874,7 +1877,7 @@ PRINT_PERL = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_FLISP = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_JULIA = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_DTRACE = echo '$(subst ','\'',$(1))'; $(1)
-ifneq ($(MMTK_PLAN), )
+ifneq (${MMTK_PLAN},None)
 PRINT_MMTK = echo '$(subst ','\'',$(1))'; $(1)
 endif
 
