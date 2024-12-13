@@ -1,0 +1,5 @@
+# FIXME: Update these with a proper version from mmtk/mmtk-julia before merging
+MMTK_JULIA_BRANCH = release-0.29.0
+MMTK_JULIA_SHA1 = dd0478b83ba18215efeaf90c67479b60102d5166
+MMTK_JULIA_GIT_URL := https://github.com/udesou/mmtk-julia.git
+MMTK_JULIA_TAR_URL = https://github.com/udesou/mmtk-julia/archive/refs/tags/v0.0.1-test.tar.gz

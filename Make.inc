@@ -833,9 +833,6 @@ JCFLAGS += -DGC_DEBUG_ENV
 endif
 
 ifneq (${MMTK_PLAN},None)
-ifeq (${MMTK_JULIA_DIR},)
-$(error MMTK_JULIA_DIR must be set to use MMTk)
-endif
 JCXXFLAGS += -DMMTK_GC
 JCFLAGS += -DMMTK_GC
 ifeq (${MMTK_BUILD},)
@@ -851,17 +848,20 @@ JCFLAGS += -DMMTK_PLAN_IMMIX
 else
 $(error "Unsupported MMTk plan: $(MMTK_PLAN)")
 endif
+
+# Location of mmtk-julia binding
+# (needed for api/*.h and .so file)
+MMTK_JULIA_DIR ?= $(BUILDROOT)/usr/lib/mmtk_julia
+
 MMTK_DIR = ${MMTK_JULIA_DIR}/mmtk
-MMTK_API_INC = $(MMTK_DIR)/api
+MMTK_API_INC = ${MMTK_DIR}/api
+
 ifeq ($(OS),Linux)
 MMTK_LIB_NAME := libmmtk_julia.so
 else
 $(error "Unsupported OS for MMTk")
 endif
-MMTK_LIB_SRC := $(MMTK_DIR)/target/$(MMTK_BUILD)/$(MMTK_LIB_NAME)
-MMTK_LIB_DST := $(BUILDROOT)/usr/lib/$(MMTK_LIB_NAME)
 MMTK_LIB := -lmmtk_julia
-LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD)/
 else
 MMTK_JULIA_INC :=
 MMTK_LIB :=
