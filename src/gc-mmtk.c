@@ -139,8 +139,7 @@ void jl_init_thread_heap(struct _jl_tls_states_t *ptls) JL_NOTSAFEPOINT {
     small_arraylist_new(&heap->live_tasks, 0);
     for (int i = 0; i < JL_N_STACK_POOLS; i++)
         small_arraylist_new(&heap->free_stacks[i], 0);
-    heap->mallocarrays = NULL;
-    heap->mafreelist = NULL;
+    small_arraylist_new(&heap->mallocarrays, 0);
     arraylist_new(&ptls->finalizers, 0);
     // Initialize `lazily_freed_mtarraylist_buffers`
     small_arraylist_new(&ptls->lazily_freed_mtarraylist_buffers, 0);
@@ -548,17 +547,18 @@ JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, Process
 // This is used in mmtk_sweep_malloced_memory and it is slightly different
 // from jl_gc_free_memory from gc-stock.c as the stock GC updates the
 // information in the global variable gc_heap_stats (which is specific to the stock GC)
-static void jl_gc_free_memory(jl_value_t *v, int isaligned) JL_NOTSAFEPOINT
+static void jl_gc_free_memory(jl_genericmemory_t *m, int isaligned) JL_NOTSAFEPOINT
 {
-    assert(jl_is_genericmemory(v));
-    jl_genericmemory_t *m = (jl_genericmemory_t*)v;
+    assert(jl_is_genericmemory(m));
     assert(jl_genericmemory_how(m) == 1 || jl_genericmemory_how(m) == 2);
     char *d = (char*)m->ptr;
+    size_t freed_bytes = memory_block_usable_size(d, isaligned);
+    assert(freed_bytes != 0);
     if (isaligned)
         jl_free_aligned(d);
     else
         free(d);
-    gc_num.freed += jl_genericmemory_nbytes(m);
+    gc_num.freed += freed_bytes;
     gc_num.freecall++;
 }
 
@@ -567,28 +567,23 @@ JL_DLLEXPORT void jl_gc_mmtk_sweep_malloced_memory(void) JL_NOTSAFEPOINT
     void* iter = mmtk_new_mutator_iterator();
     jl_ptls_t ptls2 = (jl_ptls_t)mmtk_get_next_mutator_tls(iter);
     while(ptls2 != NULL) {
-        mallocmemory_t *ma = ptls2->gc_tls_common.heap.mallocarrays;
-        mallocmemory_t **pma = &ptls2->gc_tls_common.heap.mallocarrays;
-        while (ma != NULL) {
-            mallocmemory_t *nxt = ma->next;
-            jl_value_t *a = (jl_value_t*)((uintptr_t)ma->a & ~1);
-            // the array should always be a heap object
-            assert(mmtk_object_is_managed_by_mmtk(a));
-            if (mmtk_is_live_object(a)) {
-                // if the array has been forwarded, the reference needs to be updated
-                jl_genericmemory_t *maybe_forwarded = (jl_genericmemory_t*)mmtk_get_possibly_forwarded(ma->a);
-                ma->a = maybe_forwarded;
-                pma = &ma->next;
+        size_t n = 0;
+        size_t l = ptls2->gc_tls_common.heap.mallocarrays.len;
+        void **lst = ptls2->gc_tls_common.heap.mallocarrays.items;
+        // filter without preserving order
+        while (n < l) {
+            jl_genericmemory_t *m = (jl_genericmemory_t*)((uintptr_t)lst[n] & ~1);
+            if (mmtk_is_live_object(m)) {
+                n++;
             }
             else {
-                *pma = nxt;
-                int isaligned = (uintptr_t)ma->a & 1;
-                jl_gc_free_memory(a, isaligned);
-                ma->next = ptls2->gc_tls_common.heap.mafreelist;
-                ptls2->gc_tls_common.heap.mafreelist = ma;
+                int isaligned = (uintptr_t)lst[n] & 1;
+                jl_gc_free_memory(m, isaligned);
+                l--;
+                lst[n] = lst[l];
             }
-            ma = nxt;
         }
+        ptls2->gc_tls_common.heap.mallocarrays.len = l;
         ptls2 = (jl_ptls_t)mmtk_get_next_mutator_tls(iter);
     }
     mmtk_close_mutator_iterator(iter);
