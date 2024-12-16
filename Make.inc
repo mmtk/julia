@@ -835,13 +835,8 @@ endif
 ifneq (${MMTK_PLAN},None)
 JCXXFLAGS += -DMMTK_GC
 JCFLAGS += -DMMTK_GC
-ifeq (${MMTK_BUILD},)
-ifeq (debug,$(findstring debug,$(MAKECMDGOALS)))
-MMTK_BUILD = debug
-else
-MMTK_BUILD = release
-endif
-endif
+# Do a release build on the binding by default
+MMTK_BUILD ?= release
 ifeq (${MMTK_PLAN},Immix)
 JCXXFLAGS += -DMMTK_PLAN_IMMIX
 JCFLAGS += -DMMTK_PLAN_IMMIX
