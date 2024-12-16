@@ -10,22 +10,22 @@ MMTK_VARS := MMTK_PLAN=$(MMTK_PLAN) MMTK_MOVING=$(MMTK_MOVING)
 ifeq (${MMTK_JULIA_DIR},$(BUILDROOT)/usr/lib/mmtk_julia)
 $(eval $(call git-external,mmtk_julia,MMTK_JULIA,,,$(BUILDDIR)))
 
-MMTK_JULIA_DIR=$(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)
+MMTK_JULIA_DIR=$(BUILDROOT)/deps/$(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)
 MMTK_JULIA_LIB_PATH=$(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)
-PROJECT_DIRS := JULIA_PATH=$(JULIAHOME) JULIA_BUILDROOT=$(BUILDROOT) MMTK_JULIA_DIR=$(SRCDIR)/$(MMTK_JULIA_DIR)
+PROJECT_DIRS := JULIA_PATH=$(JULIAHOME) JULIA_BUILDROOT=$(BUILDROOT) MMTK_JULIA_DIR=$(MMTK_JULIA_DIR)
 
-$(MMTK_JULIA_DIR)/build-compiled: $(BUILDROOT)/usr/lib/libmmtk_julia.so
+$(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)/build-compiled: $(BUILDROOT)/usr/lib/libmmtk_julia.so
 	@echo 1 > $@
 
 # NB: use the absolute dir when creating the symlink
-$(BUILDROOT)/usr/lib/libmmtk_julia.so: $(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so
-	@ln -sf $(SRCDIR)/$(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so $@
+$(BUILDROOT)/usr/lib/libmmtk_julia.so: $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so
+	@ln -sf $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so $@
 
-$(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so: $(MMTK_JULIA_DIR)/source-extracted
+$(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so: $(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)/source-extracted
 	@$(PROJECT_DIRS) $(MMTK_VARS) $(MAKE) -C $(MMTK_JULIA_DIR) $(MMTK_BUILD)
 
 get-mmtk_julia: $(MMTK_JULIA_SRC_FILE)
-extract-mmtk_julia: $(MMTK_JULIA_DIR)/source-extracted
+extract-mmtk_julia: $(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)/source-extracted
 configure-mmtk_julia: extract-mmtk_julia
 compile-mmtk_julia: $(BUILDROOT)/usr/lib/libmmtk_julia.so
 fastcheck-mmtk_julia: #none
@@ -37,7 +37,7 @@ $(eval $(call symlink_install,mmtk_julia,$$(MMTK_JULIA_SRC_DIR),$$(BUILDROOT)/us
 # Build it and symlink libmmtk_julia.so file into $(BUILDROOT)/usr/lib
 else
 
-PROJECT_DIRS := JULIA_PATH=$(JULIAHOME) JULIA_BUILDROOT=$(BUILDROOT) MMTK_JULIA_DIR=$(SRCDIR)/$(MMTK_JULIA_DIR)
+PROJECT_DIRS := JULIA_PATH=$(JULIAHOME) JULIA_BUILDROOT=$(BUILDROOT) MMTK_JULIA_DIR=$(MMTK_JULIA_DIR)
 MMTK_JULIA_LIB_PATH=$(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)
 
 install-mmtk_julia: compile-mmtk_julia $(build_prefix)/manifest/mmtk_julia
