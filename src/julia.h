@@ -2755,6 +2755,8 @@ extern void mmtk_object_reference_write_slow(void* mutator, const void* parent, 
 #define MMTK_IMMORTAL_BUMP_ALLOCATOR (0)
 
 // VO bit is required to support conservative stack scanning and moving.
+// NB: We have to set VO bit even if this is a non_moving build. Otherwise, assertions in mmtk-core
+// will complain about seeing objects without VO bit.
 #define MMTK_NEEDS_VO_BIT (1)
 
 void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size);
