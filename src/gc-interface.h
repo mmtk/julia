@@ -100,6 +100,8 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection);
 JL_DLLEXPORT int gc_is_collector_thread(int tid) JL_NOTSAFEPOINT;
 // Pinning objects; Returns whether the object has been pinned by this call.
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
+// Pinning objects through a potential internal pointer; Returns whether the object has been pinned by this call.
+JL_DLLEXPORT unsigned char jl_gc_pin_pointer(void* ptr);
 // Returns the version of which GC implementation is being used according to the list of supported GCs
 JL_DLLEXPORT const char* jl_active_gc_impl(void);
 // Notifies the GC that the given thread is about to yield for a GC. ctx is the ucontext for the thread

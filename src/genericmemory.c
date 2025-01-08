@@ -109,7 +109,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_string_to_genericmemory(jl_value_t *str)
     m->length = jl_string_len(str);
     m->ptr = jl_string_data(str);
     jl_genericmemory_data_owner_field(m) = str;
-    PTR_PIN(str);
+    OBJ_PIN(str);
     return m;
 }
 
@@ -164,7 +164,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_ptr_to_genericmemory(jl_value_t *mtype, void
     m->length = nel;
     jl_genericmemory_data_owner_field(m) = own_buffer ? (jl_value_t*)m : NULL;
     if (own_buffer) {
-        PTR_PIN(m);
+        OBJ_PIN(m);
         int isaligned = 0;  // TODO: allow passing memalign'd buffers
         jl_gc_track_malloced_genericmemory(ct->ptls, m, isaligned);
         size_t allocated_bytes = memory_block_usable_size(data, isaligned);

@@ -82,7 +82,7 @@ static uint64_t jl_worklist_key(jl_array_t *worklist) JL_NOTSAFEPOINT
     return 0;
 }
 
-static jl_array_t *newly_inferred JL_GLOBALLY_ROOTED /*FIXME*/;
+jl_array_t *newly_inferred JL_GLOBALLY_ROOTED /*FIXME*/;
 // Mutex for newly_inferred
 jl_mutex_t newly_inferred_mutex;
 extern jl_mutex_t world_counter_lock;

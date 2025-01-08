@@ -562,6 +562,8 @@ JL_DLLEXPORT jl_code_instance_t *jl_new_codeinst(
     jl_atomic_store_relaxed(&codeinst->ipo_purity_bits, effects);
     codeinst->analysis_results = analysis_results;
     codeinst->relocatability = relocatability;
+    // Pin codeinst, as they are referenced by vectors and maps in _jl_codegen_params_t
+    OBJ_PIN(codeinst);
     return codeinst;
 }
 

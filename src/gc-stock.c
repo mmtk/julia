@@ -4015,6 +4015,10 @@ JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
     return 0;
 }
 
+JL_DLLEXPORT unsigned char jl_gc_pin_pointer(void* ptr) {
+    return 0;
+}
+
 // added for MMTk integration
 
 JL_DLLEXPORT void jl_gc_wb1_noinline(const void *parent) JL_NOTSAFEPOINT
