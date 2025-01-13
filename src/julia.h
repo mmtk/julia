@@ -84,6 +84,7 @@ extern "C" {
 
 // FIXME: Pinning objects that get hashed in the ptrhash table
 // until we implement address space hashing.
+#define OBJHASH_PIN(key) if (key) jl_gc_pin_object(key);
 #define PTRHASH_PIN(key) if (key) jl_gc_pin_pointer(key);
 
 // Called when pinning objects that would cause an error if moved

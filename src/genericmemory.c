@@ -56,6 +56,8 @@ jl_genericmemory_t *_new_genericmemory_(jl_value_t *mtype, size_t nel, int8_t is
     m = (jl_genericmemory_t*)jl_gc_alloc(ct->ptls, tot, mtype);
     if (pooled) {
         data = (char*)m + JL_SMALL_BYTE_ALIGNMENT;
+        // Data is inlined and ptr is an internal pointer. We pin the object so the ptr will not be invalid.
+        OBJ_PIN(m);
     }
     else {
         int isaligned = 1; // jl_gc_managed_malloc is always aligned

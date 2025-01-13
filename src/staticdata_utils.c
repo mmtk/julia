@@ -285,7 +285,7 @@ static void jl_collect_new_roots(htable_t *relocatable_ext_cis, jl_array_t *root
         assert(jl_is_code_instance(ci));
         jl_method_t *m = ci->def->def.method;
         assert(jl_is_method(m));
-        PTRHASH_PIN(m)
+        OBJHASH_PIN(m)
         ptrhash_put(&mset, (void*)m, (void*)m);
         ptrhash_put(relocatable_ext_cis, (void*)ci, (void*)ci);
     }
