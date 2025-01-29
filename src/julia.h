@@ -84,6 +84,15 @@ typedef struct _jl_value_t jl_value_t;
 extern "C" {
 #endif
 
+// object pinning  ------------------------------------------------------------
+
+// FIXME: Pinning objects that get hashed in the ptrhash table
+// until we implement address space hashing.
+#define PTRHASH_PIN(key) jl_gc_pin_object(key);
+
+// Called when pinning objects that would cause an error if moved
+#define PTR_PIN(key) jl_gc_pin_object(key);
+
 // core data types ------------------------------------------------------------
 
 struct _jl_taggedvalue_bits {
@@ -1048,8 +1057,41 @@ struct _jl_gcframe_t {
 
 #define jl_pgcstack (jl_current_task->gcstack)
 
+#ifndef MMTK_GC
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
+#define JL_GC_DECODE_NROOTS(n)     (n >> 2)
+
+#define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)  JL_GC_ENCODE_PUSHARGS(n)
+#define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
+#else
+
+// We use an extra bit (100) in the nroots value from the frame to indicate that the roots
+// in the frame are/are not transitively pinning.
+// There are currently 3 macros that encode passing nroots to the gcframe
+// and they use the two lowest bits to encode information about what is in the frame (as below).
+// To support the distinction between transtively pinning roots and non transitively pinning roots
+// on the stack, we take another bit from nroots to encode information about whether or not to
+// transitively pin the roots in the frame.
+//
+// So the ones that transitively pin look like:
+// #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
+// #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
+// #define JL_GC_ENCODE_PUSHFRAME(n)  ((((size_t)(n))<<3)|2)
+// and the ones that do not look like:
+// #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
+// #define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
+// #define JL_GC_ENCODE_PUSHFRAME_NO_TPIN(n)  ((((size_t)(n))<<3)|6)
+
+// these are transitively pinning
+#define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<3)
+#define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<3)|1)
+#define JL_GC_DECODE_NROOTS(n)     (n >> 3)
+
+// these only pin the root object itself
+#define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)   (((size_t)(n))<<3|4)
+#define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
+#endif
 
 #ifdef __clang_gcanalyzer__
 
@@ -1167,6 +1209,24 @@ STATIC_INLINE void jl_gc_multi_wb(const void *parent, const jl_value_t *ptr) JL_
     if (ly->npointers)
         jl_gc_queue_multiroot((jl_value_t*)parent, ptr, dt);
 }
+#else  // MMTK_GC
+STATIC_INLINE void mmtk_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOINT;
+
+STATIC_INLINE void jl_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+    mmtk_gc_wb(parent, ptr);
+}
+
+STATIC_INLINE void jl_gc_wb_back(const void *ptr) JL_NOTSAFEPOINT // ptr isa jl_value_t*
+{
+    mmtk_gc_wb(ptr, (void*)0);
+}
+
+STATIC_INLINE void jl_gc_multi_wb(const void *parent, const jl_value_t *ptr) JL_NOTSAFEPOINT
+{
+    mmtk_gc_wb(parent, (void*)0);
+}
+#endif // MMTK_GC
 
 JL_DLLEXPORT void jl_gc_safepoint(void);
 JL_DLLEXPORT int jl_safepoint_suspend_thread(int tid, int waitstate);
@@ -2630,6 +2690,66 @@ extern JL_DLLEXPORT jl_cgparams_t jl_default_cgparams;
 typedef struct {
     int emit_metadata;
 } jl_emission_params_t;
+
+#ifdef MMTK_GC
+
+extern void mmtk_object_reference_write_post(void* mutator, const void* parent, const void* ptr);
+extern void mmtk_object_reference_write_slow(void* mutator, const void* parent, const void* ptr);
+
+// These need to be constants.
+
+#define MMTK_OBJECT_BARRIER (1)
+// Stickyimmix needs write barrier. Immix does not need write barrier.
+#ifdef MMTK_PLAN_IMMIX
+#define MMTK_NEEDS_WRITE_BARRIER (0)
+#endif
+#ifdef MMTK_PLAN_STICKYIMMIX
+#define MMTK_NEEDS_WRITE_BARRIER (1)
+#endif
+
+#define MMTK_DEFAULT_IMMIX_ALLOCATOR (0)
+#define MMTK_IMMORTAL_BUMP_ALLOCATOR (0)
+
+// VO bit is required to support conservative stack scanning and moving.
+// NB: We have to set VO bit even if this is a non_moving build. Otherwise, assertions in mmtk-core
+// will complain about seeing objects without VO bit.
+#define MMTK_NEEDS_VO_BIT (1)
+
+void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size);
+
+extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
+extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
+
+// Directly call into MMTk for write barrier (debugging only)
+STATIC_INLINE void mmtk_gc_wb_full(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+    jl_task_t *ct = jl_current_task;
+    jl_ptls_t ptls = ct->ptls;
+    mmtk_object_reference_write_post(&ptls->gc_tls.mmtk_mutator, parent, ptr);
+}
+
+// Inlined fastpath
+STATIC_INLINE void mmtk_gc_wb_fast(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+    if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
+        intptr_t addr = (intptr_t) (void*) parent;
+        uint8_t* meta_addr = (uint8_t*) (MMTK_SIDE_LOG_BIT_BASE_ADDRESS) + (addr >> 6);
+        intptr_t shift = (addr >> 3) & 0b111;
+        uint8_t byte_val = *meta_addr;
+        if (((byte_val >> shift) & 1) == 1) {
+            jl_task_t *ct = jl_current_task;
+            jl_ptls_t ptls = ct->ptls;
+            mmtk_object_reference_write_slow(&ptls->gc_tls.mmtk_mutator, parent, ptr);
+        }
+    }
+}
+
+STATIC_INLINE void mmtk_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+    mmtk_gc_wb_fast(parent, ptr);
+}
+
+#endif
 
 #ifdef __cplusplus
 }

@@ -272,6 +272,7 @@ static void jl_collect_new_roots(jl_array_t *roots, jl_array_t *new_ext_cis, uin
         assert(jl_is_code_instance(ci));
         jl_method_t *m = jl_get_ci_mi(ci)->def.method;
         assert(jl_is_method(m));
+        PTRHASH_PIN(m)
         ptrhash_put(&mset, (void*)m, (void*)m);
     }
     int nwithkey;

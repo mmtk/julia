@@ -1211,6 +1211,7 @@ CFI_NORETURN
     jl_task_t *ct = jl_get_current_task();
 #else
     jl_task_t *ct = jl_current_task;
+    JL_GC_PUSH1(&ct);
 #endif
     ct->ctx.ctx = NULL;
     jl_ptls_t ptls = ct->ptls;
@@ -1258,6 +1259,7 @@ skip_pop_exception:;
     ct->result = res;
     jl_gc_wb(ct, ct->result);
     jl_finish_task(ct);
+    JL_GC_POP();
     jl_gc_debug_critical_error();
     abort();
 }

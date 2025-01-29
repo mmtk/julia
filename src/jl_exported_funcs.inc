@@ -170,6 +170,10 @@
     XX(jl_gc_small_alloc) \
     XX(jl_gc_queue_multiroot) \
     XX(jl_gc_queue_root) \
+    XX(jl_gc_wb1_noinline) \
+    XX(jl_gc_wb2_noinline) \
+    XX(jl_gc_wb1_slow) \
+    XX(jl_gc_wb2_slow) \
     XX(jl_gc_safepoint) \
     XX(jl_gc_schedule_foreign_sweepfunc) \
     XX(jl_gc_set_cb_notify_external_alloc) \
@@ -182,6 +186,8 @@
     XX(jl_gc_set_max_memory) \
     XX(jl_gc_sync_total_bytes) \
     XX(jl_gc_total_hrtime) \
+    XX(jl_gc_preserve_begin_hook) \
+    XX(jl_gc_preserve_end_hook) \
     XX(jl_gdblookup) \
     XX(jl_generating_output) \
     XX(jl_declare_const_gf) \

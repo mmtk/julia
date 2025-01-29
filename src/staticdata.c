@@ -741,8 +741,11 @@ static int needs_uniquing(jl_value_t *v) JL_NOTSAFEPOINT
 
 static void record_field_change(jl_value_t **addr, jl_value_t *newval) JL_NOTSAFEPOINT
 {
-    if (*addr != newval)
+    if (*addr != newval) {
+        PTRHASH_PIN((void*)addr)
+        PTRHASH_PIN((void*)newval)
         ptrhash_put(&field_replace, (void*)addr, newval);
+    }
 }
 
 static jl_value_t *get_replaceable_field(jl_value_t **addr, int mutabl) JL_GC_DISABLED
@@ -2514,6 +2517,8 @@ static jl_svec_t *jl_prune_type_cache_hash(jl_svec_t *cache) JL_GC_DISABLED
     assert(serialization_queue.items[from_seroder_entry(idx)] == cache);
     cache = cache_rehash_set(cache, sz);
     // redirect all references to the old cache to relocate to the new cache object
+    PTRHASH_PIN((void*)cache)
+    PTRHASH_PIN((void*)idx)
     ptrhash_put(&serialization_order, cache, idx);
     serialization_queue.items[from_seroder_entry(idx)] = cache;
     return cache;
@@ -2985,6 +2990,7 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
     htable_new(&fptr_to_id, sizeof(id_to_fptrs) / sizeof(*id_to_fptrs));
     uintptr_t i;
     for (i = 0; id_to_fptrs[i] != NULL; i++) {
+        PTRHASH_PIN((void*)(uintptr_t)id_to_fptrs[i])
         ptrhash_put(&fptr_to_id, (void*)(uintptr_t)id_to_fptrs[i], (void*)(i + 2));
     }
     htable_new(&serialization_order, 25000);
@@ -3711,6 +3717,7 @@ static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl
                 assert(tag == 0);
                 arraylist_push(&delay_list, obj);
                 arraylist_push(&delay_list, pfld);
+                PTRHASH_PIN(obj)
                 ptrhash_put(&new_dt_objs, (void*)obj, obj); // mark obj as invalid
                 *pfld = (uintptr_t)NULL;
                 continue;
@@ -3745,6 +3752,8 @@ static void jl_restore_system_image_from_stream_(ios_t *f, jl_image_t *image, jl
                     }
                     static_assert(offsetof(jl_datatype_t, name) == 0, "");
                     newdt->name = dt->name;
+                    PTRHASH_PIN(newdt)
+                    PTRHASH_PIN(dt)
                     ptrhash_put(&new_dt_objs, (void*)newdt, dt);
                 }
                 else {
@@ -4073,8 +4082,10 @@ static jl_value_t *jl_restore_package_image_from_stream(void* pkgimage_handle, i
         char *sysimg;
         int success = !needs_permalloc;
         ios_seek(f, datastartpos);
-        if (needs_permalloc)
+        if (needs_permalloc) {
             sysimg = (char*)jl_gc_perm_alloc(len, 0, 64, 0);
+            jl_gc_notify_image_alloc(sysimg, len);
+        }
         else
             sysimg = &f->buf[f->bpos];
         if (needs_permalloc)
@@ -4198,6 +4209,7 @@ JL_DLLEXPORT void jl_restore_system_image(const char *fname)
         ios_seek_end(&f);
         size_t len = ios_pos(&f);
         char *sysimg = (char*)jl_gc_perm_alloc(len, 0, 64, 0);
+        jl_gc_notify_image_alloc(sysimg, len);
         ios_seek(&f, 0);
         if (ios_readall(&f, sysimg, len) != len)
             jl_errorf("Error reading system image file.");
