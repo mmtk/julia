@@ -1406,7 +1406,7 @@ JL_CALLABLE(jl_f_setglobal)
         jl_atomic_error("setglobal!: module binding cannot be written non-atomically");
     else if (order >= jl_memory_order_seq_cst)
         jl_fence();
-    jl_binding_t *b = jl_get_binding_wr(mod, var, 0);
+    jl_binding_t *b = jl_get_binding_wr(mod, var);
     jl_checked_assignment(b, mod, var, args[2]); // release store
     if (order >= jl_memory_order_seq_cst)
         jl_fence();
@@ -1441,7 +1441,7 @@ JL_CALLABLE(jl_f_swapglobal)
     if (order == jl_memory_order_notatomic)
         jl_atomic_error("swapglobal!: module binding cannot be written non-atomically");
     // is seq_cst already, no fence needed
-    jl_binding_t *b = jl_get_binding_wr(mod, var, 0);
+    jl_binding_t *b = jl_get_binding_wr(mod, var);
     return jl_checked_swap(b, mod, var, args[2]);
 }
 
@@ -1459,7 +1459,7 @@ JL_CALLABLE(jl_f_modifyglobal)
     JL_TYPECHK(modifyglobal!, symbol, (jl_value_t*)var);
     if (order == jl_memory_order_notatomic)
         jl_atomic_error("modifyglobal!: module binding cannot be written non-atomically");
-    jl_binding_t *b = jl_get_binding_wr(mod, var, 0);
+    jl_binding_t *b = jl_get_binding_wr(mod, var);
     // is seq_cst already, no fence needed
     return jl_checked_modify(b, mod, var, args[2], args[3]);
 }
@@ -1488,7 +1488,7 @@ JL_CALLABLE(jl_f_replaceglobal)
         jl_atomic_error("replaceglobal!: module binding cannot be written non-atomically");
     if (failure_order == jl_memory_order_notatomic)
         jl_atomic_error("replaceglobal!: module binding cannot be accessed non-atomically");
-    jl_binding_t *b = jl_get_binding_wr(mod, var, 0);
+    jl_binding_t *b = jl_get_binding_wr(mod, var);
     // is seq_cst already, no fence needed
     return jl_checked_replace(b, mod, var, args[2], args[3]);
 }
@@ -1517,7 +1517,7 @@ JL_CALLABLE(jl_f_setglobalonce)
         jl_atomic_error("setglobalonce!: module binding cannot be written non-atomically");
     if (failure_order == jl_memory_order_notatomic)
         jl_atomic_error("setglobalonce!: module binding cannot be accessed non-atomically");
-    jl_binding_t *b = jl_get_binding_wr(mod, var, 0);
+    jl_binding_t *b = jl_get_binding_wr(mod, var);
     // is seq_cst already, no fence needed
     jl_value_t *old = jl_checked_assignonce(b, mod, var, args[2]);
     return old == NULL ? jl_true : jl_false;
