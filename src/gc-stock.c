@@ -3458,6 +3458,11 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection)
         gc_cblist_pre_gc, (collection));
 
     if (!jl_atomic_load_acquire(&jl_gc_disable_counter)) {
+        // This thread will yield.
+        // jl_gc_notify_thread_yield does nothing for the stock GC at the point, but it may be non empty in the future,
+        // and this is a place where we should call jl_gc_notify_thread_yield.
+        // TODO: This call can be removed if requested.
+        jl_gc_notify_thread_yield(ptls, NULL);
         JL_LOCK_NOGC(&finalizers_lock); // all the other threads are stopped, so this does not make sense, right? otherwise, failing that, this seems like plausibly a deadlock
 #ifndef __clang_gcanalyzer__
         if (_jl_gc_collect(ptls, collection)) {
@@ -3940,6 +3945,15 @@ jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
     return jl_valueof(o);
 }
 
+jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT
+{
+    jl_taggedvalue_t *tag = (jl_taggedvalue_t*)jl_gc_perm_alloc(sz, 0, sizeof(void*), 0);
+    jl_value_t *sym = jl_valueof(tag);
+    // set to old marked so that we won't look at it in the GC or write barrier.
+    jl_set_typetagof(sym, jl_symbol_tag, GC_OLD_MARKED);
+    return sym;
+}
+
 JL_DLLEXPORT int jl_gc_enable_conservative_gc_support(void)
 {
     if (jl_is_initialized()) {
@@ -4074,6 +4088,47 @@ JL_DLLEXPORT void jl_gc_schedule_foreign_sweepfunc(jl_ptls_t ptls, jl_value_t *o
 void jl_gc_notify_image_load(const char* img_data, size_t len)
 {
     // Do nothing
+}
+
+void jl_gc_notify_image_alloc(const char* img_data, size_t len)
+{
+    // Do nothing
+}
+
+JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
+    return 0;
+}
+
+// added for MMTk integration
+
+JL_DLLEXPORT void jl_gc_wb1_noinline(const void *parent) JL_NOTSAFEPOINT
+{
+}
+
+JL_DLLEXPORT void jl_gc_wb2_noinline(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+}
+
+JL_DLLEXPORT void jl_gc_wb1_slow(const void *parent) JL_NOTSAFEPOINT
+{
+}
+
+JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFEPOINT
+{
+}
+
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
+{
+    jl_unreachable();
+}
+
+JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx) {
+    // Do nothing before a thread yields
 }
 
 JL_DLLEXPORT const char* jl_gc_active_impl(void) {

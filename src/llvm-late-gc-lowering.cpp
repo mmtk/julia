@@ -13,14 +13,6 @@ static bool isTrackedValue(Value *V) {
     return PT && PT->getAddressSpace() == AddressSpace::Tracked;
 }
 
-static bool isSpecialPtr(Type *Ty) {
-    PointerType *PTy = dyn_cast<PointerType>(Ty);
-    if (!PTy)
-        return false;
-    unsigned AS = PTy->getAddressSpace();
-    return AddressSpace::FirstSpecial <= AS && AS <= AddressSpace::LastSpecial;
-}
-
 // return how many Special pointers are in T (count > 0),
 // and if there is anything else in T (all == false)
 CountTrackedPointers::CountTrackedPointers(Type *T, bool ignore_loaded) {

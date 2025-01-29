@@ -111,6 +111,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_string_to_genericmemory(jl_value_t *str)
     m->length = jl_string_len(str);
     m->ptr = jl_string_data(str);
     jl_genericmemory_data_owner_field(m) = str;
+    PTR_PIN(str);
     return m;
 }
 
@@ -166,6 +167,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_ptr_to_genericmemory(jl_value_t *mtype, void
     m->length = nel;
     jl_genericmemory_data_owner_field(m) = own_buffer ? (jl_value_t*)m : NULL;
     if (own_buffer) {
+        PTR_PIN(m);
         int isaligned = 0;  // TODO: allow passing memalign'd buffers
         jl_gc_track_malloced_genericmemory(ct->ptls, m, isaligned);
         size_t allocated_bytes = memory_block_usable_size(data, isaligned);
@@ -235,6 +237,10 @@ JL_DLLEXPORT void jl_genericmemory_copyto(jl_genericmemory_t *dest, char* destda
         _Atomic(void*) * dest_p = (_Atomic(void*)*)destdata;
         _Atomic(void*) * src_p = (_Atomic(void*)*)srcdata;
         jl_value_t *owner = jl_genericmemory_owner(dest);
+        // FIXME: The following should be a write barrier impl provided by the GC.
+#ifdef MMTK_GC
+        jl_gc_wb(owner, NULL);
+#else
         if (__unlikely(jl_astaggedvalue(owner)->bits.gc == GC_OLD_MARKED)) {
             jl_value_t *src_owner = jl_genericmemory_owner(src);
             ssize_t done = 0;
@@ -265,6 +271,7 @@ JL_DLLEXPORT void jl_genericmemory_copyto(jl_genericmemory_t *dest, char* destda
                 n -= done;
             }
         }
+#endif
         return memmove_refs(dest_p, src_p, n);
     }
     size_t elsz = layout->size;

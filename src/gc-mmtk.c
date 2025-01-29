@@ -323,6 +323,24 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
     errno = last_errno;
 }
 
+JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
+    return mmtk_pin_object(obj);
+}
+
+JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx) {
+    if (ctx == NULL) {
+        // Save the context for the thread as it was running at the time of the call
+        int r = getcontext(&ptls->gc_tls.ctx_at_the_time_gc_started);
+        if (r == -1) {
+            jl_safe_printf("Failed to save context for conservative scanning\n");
+            abort();
+        }
+        return;
+    }
+    memcpy(&ptls->gc_tls.ctx_at_the_time_gc_started, ctx, sizeof(ucontext_t));
+}
+
+
 // ========================================================================= //
 // GC Statistics
 // ========================================================================= //
@@ -807,6 +825,36 @@ JL_DLLEXPORT int* jl_gc_get_have_pending_finalizers(void) {
     return (int*)&jl_gc_have_pending_finalizers;
 }
 
+
+// ========================================================================= //
+// Write barriers
+// ========================================================================= //
+
+// No inline write barrier -- only used for debugging
+JL_DLLEXPORT void jl_gc_wb1_noinline(const void *parent) JL_NOTSAFEPOINT
+{
+    jl_gc_wb_back(parent);
+}
+
+JL_DLLEXPORT void jl_gc_wb2_noinline(const void *parent, const void *ptr) JL_NOTSAFEPOINT
+{
+    jl_gc_wb(parent, ptr);
+}
+
+JL_DLLEXPORT void jl_gc_wb1_slow(const void *parent) JL_NOTSAFEPOINT
+{
+    jl_task_t *ct = jl_current_task;
+    jl_ptls_t ptls = ct->ptls;
+    mmtk_object_reference_write_slow(&ptls->gc_tls.mmtk_mutator, parent, (const void*) 0);
+}
+
+JL_DLLEXPORT void jl_gc_wb2_slow(const void *parent, const void* ptr) JL_NOTSAFEPOINT
+{
+    jl_task_t *ct = jl_current_task;
+    jl_ptls_t ptls = ct->ptls;
+    mmtk_object_reference_write_slow(&ptls->gc_tls.mmtk_mutator, parent, ptr);
+}
+
 // ========================================================================= //
 // Allocation
 // ========================================================================= //
@@ -842,18 +890,28 @@ STATIC_INLINE void* bump_alloc_fast(MMTkMutatorContext* mutator, uintptr_t* curs
     }
 }
 
+inline void mmtk_set_side_metadata(const void* side_metadata_base, void* obj) {
+        intptr_t addr = (intptr_t) obj;
+        uint8_t* meta_addr = (uint8_t*) side_metadata_base + (addr >> 6);
+        intptr_t shift = (addr >> 3) & 0b111;
+        while(1) {
+            uint8_t old_val = *meta_addr;
+            uint8_t new_val = old_val | (1 << shift);
+            if (jl_atomic_cmpswap((_Atomic(uint8_t)*)meta_addr, &old_val, new_val)) {
+                break;
+            }
+        }
+}
+
 STATIC_INLINE void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     ImmixAllocator* allocator = &mutator->allocators.immix[MMTK_DEFAULT_IMMIX_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 0);
 }
 
-inline void mmtk_immix_post_alloc_slow(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    mmtk_post_alloc(mutator, obj, size, 0);
-}
-
 STATIC_INLINE void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    // FIXME: for now, we do nothing
-    // but when supporting moving, this is where we set the valid object (VO) bit
+    if (MMTK_NEEDS_VO_BIT) {
+        mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
+    }
 }
 
 STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
@@ -861,10 +919,14 @@ STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (uintptr_t)allocator->limit, size, align, offset, 1);
 }
 
-STATIC_INLINE void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
-    // FIXME: Similarly, for now, we do nothing
-    // but when supporting moving, this is where we set the valid object (VO) bit
-    // and log (old gen) bit
+STATIC_INLINE  void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
+        mmtk_set_side_metadata(MMTK_SIDE_LOG_BIT_BASE_ADDRESS, obj);
+    }
+
+    if (MMTK_NEEDS_VO_BIT) {
+        mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
+    }
 }
 
 JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, int osize, size_t align, void *ty)
@@ -1042,6 +1104,16 @@ jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
     return jl_valueof(o);
 }
 
+jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT
+{
+    jl_taggedvalue_t *tag = (jl_taggedvalue_t*)jl_gc_perm_alloc(sz, 0, sizeof(void*), 0);
+    jl_value_t *sym = jl_valueof(tag);
+    jl_ptls_t ptls = jl_current_task->ptls;
+    jl_set_typetagof(sym, jl_symbol_tag, 0);    // We need to set symbol tag. The GC tag doesnt matter.
+    mmtk_immortal_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, sym, sz);
+    return sym;
+}
+
 JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz)
 {
     jl_ptls_t ptls = jl_current_task->ptls;
@@ -1077,6 +1149,11 @@ JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz)
 void jl_gc_notify_image_load(const char* img_data, size_t len)
 {
     mmtk_set_vm_space((void*)img_data, len);
+}
+
+void jl_gc_notify_image_alloc(const char* img_data, size_t len)
+{
+    mmtk_immortal_region_post_alloc((void*)img_data, len);
 }
 
 // ========================================================================= //
@@ -1206,6 +1283,53 @@ JL_DLLEXPORT int jl_gc_conservative_gc_support_enabled(void)
 JL_DLLEXPORT jl_value_t *jl_gc_internal_obj_base_ptr(void *p)
 {
     return NULL;
+}
+
+#define jl_p_gcpreserve_stack (jl_current_task->gcpreserve_stack)
+
+// This macro currently uses malloc instead of alloca because this function will exit
+// after pushing the roots into the gc_preserve_stack, which means that the preserve_begin function's
+// stack frame will be destroyed (together with its alloca variables). When we support lowering this code
+// inside the same function that is doing the preserve_begin/preserve_end calls we should be able to simple use allocas.
+// Note also that we use a separate stack for gc preserve roots to avoid the possibility of calling free
+// on a stack that has been allocated with alloca instead of malloc, which could happen depending on the order in which
+// JL_GC_POP() and jl_gc_preserve_end_hook() occurs.
+
+#define JL_GC_PUSHARGS_PRESERVE_ROOT_OBJS(rts_var,n)                                                    \
+  rts_var = ((jl_value_t**)malloc(((n)+2)*sizeof(jl_value_t*)))+2;                                      \
+  ((void**)rts_var)[-2] = (void*)JL_GC_ENCODE_PUSHARGS(n);                                              \
+  ((void**)rts_var)[-1] = jl_p_gcpreserve_stack;                                                        \
+  memset((void*)rts_var, 0, (n)*sizeof(jl_value_t*));                                                   \
+  jl_p_gcpreserve_stack = (jl_gcframe_t*)&(((void**)rts_var)[-2]);                                      \
+
+#define JL_GC_POP_PRESERVE_ROOT_OBJS()                                                                  \
+    jl_gcframe_t *curr = jl_p_gcpreserve_stack;                                                         \
+    if(curr) {                                                                                          \
+        (jl_p_gcpreserve_stack = jl_p_gcpreserve_stack->prev);                                          \
+        free(curr);                                                                                     \
+    }
+
+// Add each argument as a tpin root object.
+// However, we cannot use JL_GC_PUSH and JL_GC_POP since the slots should live
+// beyond this function. Instead, we maintain a tpin stack by mallocing/freeing
+// the frames for each of the preserve regions we encounter
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT
+{
+    jl_value_t** frame;
+    JL_GC_PUSHARGS_PRESERVE_ROOT_OBJS(frame, n);
+    if (n == 0) return;
+
+    va_list args;
+    va_start(args, n);
+    for (int i = 0; i < n; i++) {
+        frame[i] = va_arg(args, jl_value_t *);
+    }
+    va_end(args);
+}
+
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
+{
+    JL_GC_POP_PRESERVE_ROOT_OBJS();
 }
 
 #ifdef __cplusplus

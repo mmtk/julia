@@ -101,6 +101,8 @@ JL_DLLEXPORT void jl_gc_set_max_memory(uint64_t max_mem);
 JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection);
 // Returns whether the thread with `tid` is a collector thread
 JL_DLLEXPORT int gc_is_collector_thread(int tid) JL_NOTSAFEPOINT;
+// Pinning objects; Returns whether the object has been pinned by this call.
+JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj);
 // Returns which GC implementation is being used and possibly its version according to the list of supported GCs
 // NB: it should clearly identify the GC by including e.g. ‘stock’ or ‘mmtk’ as a substring.
 JL_DLLEXPORT const char* jl_gc_active_impl(void);
@@ -108,6 +110,17 @@ JL_DLLEXPORT const char* jl_gc_active_impl(void);
 // each GC should implement it but it will most likely not be used by other code in the runtime.
 // It still needs to be annotated with JL_DLLEXPORT since it is called from Rust by MMTk.
 JL_DLLEXPORT void jl_gc_sweep_stack_pools_and_mtarraylist_buffers(jl_ptls_t ptls) JL_NOTSAFEPOINT;
+// Notifies the GC that the given thread is about to yield for a GC. ctx is the ucontext for the thread
+// if it is already fetched by the caller, otherwise it is NULL.
+JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx);
+
+// TODO: The preserve hook functions may be temporary. We should see the performance impact of the change.
+
+// Runtime hook for gc preserve begin. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
+JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT;
+// Runtime hook for gc preserve end. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
+JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT;
+
 
 // ========================================================================= //
 // Metrics
@@ -207,10 +220,22 @@ JL_DLLEXPORT void *jl_gc_perm_alloc(size_t sz, int zero, unsigned align,
 //              the allocated object. All objects stored in fields of this object
 //              must be either permanently allocated or have other roots.
 struct _jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT;
+// permanently allocates a symbol (jl_sym_t). The object needs to be word aligned,
+// and tagged with jl_sym_tag.
+// FIXME: Ideally we should merge this with jl_gc_permobj, as symbol is an object.
+// Currently there are a few differences between the two functions, and refactoring is needed.
+// 1. sz for this function includes the object header, and sz for jl_gc_permobj excludes the header size.
+// 2. align for this function is word align, and align for jl_gc_permobj depends on the allocation size.
+// 3. ty for this function is jl_symbol_tag << 4, and ty for jl_gc_permobj is a datatype pointer.
+struct _jl_value_t *jl_gc_permsymbol(size_t sz) JL_NOTSAFEPOINT;
 // This function notifies the GC about memory addresses that are set when loading the boot image.
 // The GC may use that information to, for instance, determine that such objects should
 // be treated as marked and belonged to the old generation in nursery collections.
 void jl_gc_notify_image_load(const char* img_data, size_t len);
+// This function notifies the GC about memory addresses that are set when allocating the boot image.
+// The GC may use that information to, for instance, determine that all objects in that chunk of memory should
+// be treated as marked and belonged to the old generation in nursery collections.
+void jl_gc_notify_image_alloc(const char* img_data, size_t len);
 
 // ========================================================================= //
 // Runtime Write-Barriers

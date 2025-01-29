@@ -1179,7 +1179,7 @@ JL_DLLEXPORT void jl_free_stack(void *stkbuf, size_t bufsz);
 JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref(jl_value_t *value);
 
 // GC write barriers
-
+#ifndef MMTK_GC
 STATIC_INLINE void jl_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOINT
 {
     // parent and ptr isa jl_value_t*
@@ -2715,7 +2715,9 @@ extern void mmtk_object_reference_write_slow(void* mutator, const void* parent, 
 // will complain about seeing objects without VO bit.
 #define MMTK_NEEDS_VO_BIT (1)
 
-void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size);
+// ========================================================================= //
+// Write Barriers
+// ========================================================================= //
 
 extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
 extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
@@ -2748,6 +2750,7 @@ STATIC_INLINE void mmtk_gc_wb(const void *parent, const void *ptr) JL_NOTSAFEPOI
 {
     mmtk_gc_wb_fast(parent, ptr);
 }
+
 
 #endif
 
