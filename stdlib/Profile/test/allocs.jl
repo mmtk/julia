@@ -36,6 +36,11 @@ end
     end
 end
 
+# Issue #57103: This test does not work with MMTk because of fastpath
+# allocation which never calls the allocation profiler.
+# TODO: We should port these observability tools (e.g. allocation
+# profiler and heap snapshot) to MMTk
+@static if Base.USING_STOCK_GC
 @testset "alloc profiler works when there are multiple tasks on multiple threads" begin
     NUM_TASKS = 1000
 
@@ -80,6 +85,7 @@ end
     # TODO: it would be nice to assert that these tasks
     # were actually scheduled onto multiple threads,
     # and we see allocs from all threads in the profile
+end
 end
 
 @testset "alloc profiler start stop fetch clear" begin
@@ -143,6 +149,8 @@ end
     @test length([a for a in prof.allocs if a.type == String]) >= 1
 end
 
+# FIXME: Issue #57103 disabling test for MMTk.
+@static if Base.USING_STOCK_GC
 @testset "alloc profiler catches allocs from codegen" begin
     @eval begin
         struct MyType x::Int; y::Int end
@@ -161,6 +169,7 @@ end
 
     @test length(prof.allocs) >= 1
     @test length([a for a in prof.allocs if a.type == MyType]) >= 1
+end
 end
 
 @testset "alloc profiler catches allocs from buffer resize" begin

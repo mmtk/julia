@@ -1,4 +1,5 @@
 #include "gc-common.h"
+#include "gc-tls-mmtk.h"
 #include "mmtkMutator.h"
 #include "threading.h"
 
@@ -15,21 +16,7 @@ extern "C" {
 
 extern jl_value_t *cmpswap_names JL_GLOBALLY_ROOTED;
 extern const unsigned pool_sizes[];
-extern void _jl_free_stack(jl_ptls_t ptls, void *stkbuf, size_t bufsz);
 extern jl_mutex_t finalizers_lock;
-
-// FIXME: Does it make sense for MMTk to implement something similar
-// for now, just ignoring this.
-
-// Must be kept in sync with `base/timing.jl`
-#define FULL_SWEEP_REASON_SWEEP_ALWAYS_FULL (0)
-#define FULL_SWEEP_REASON_FORCED_FULL_SWEEP (1)
-#define FULL_SWEEP_REASON_USER_MAX_EXCEEDED (2)
-#define FULL_SWEEP_REASON_LARGE_PROMOTION_RATE (3)
-#define FULL_SWEEP_NUM_REASONS (4)
-
-// Table recording number of full GCs due to each reason
-JL_DLLEXPORT uint64_t jl_full_sweep_reasons[FULL_SWEEP_NUM_REASONS];
 
 // FIXME: Should the values below be shared between both GC's?
 // Note that MMTk uses a hard max heap limit, which is set by default
@@ -66,7 +53,6 @@ extern void mmtk_post_alloc(void* mutator, void* refer, size_t bytes, int alloca
 extern void mmtk_store_obj_size_c(void* obj, size_t size);
 extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
 extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
-extern unsigned char mmtk_pin_object(void* obj);
 
 // ========================================================================= //
 // GC Initialization and Control
@@ -78,11 +64,37 @@ void jl_gc_init(void) {
 
     arraylist_new(&to_finalize, 0);
     arraylist_new(&finalizer_list_marked, 0);
-
+    gc_num.interval = default_collect_interval;
     gc_num.allocd = 0;
     gc_num.max_pause = 0;
     gc_num.max_memory = 0;
 
+    // Necessary if we want to use Julia heap resizing heuristics
+    uint64_t mem_reserve = 250*1024*1024; // LLVM + other libraries need some amount of memory
+    uint64_t min_heap_size_hint = mem_reserve + 1*1024*1024;
+    uint64_t hint = jl_options.heap_size_hint;
+
+    // check if heap size specified on command line
+    if (jl_options.heap_size_hint == 0) {
+        char *cp = getenv(HEAP_SIZE_HINT);
+        if (cp)
+            hint = parse_heap_size_hint(cp, "JULIA_HEAP_SIZE_HINT=\"<size>[<unit>]\"");
+    }
+#ifdef _P64
+    if (hint == 0) {
+        uint64_t constrained_mem = uv_get_constrained_memory();
+        if (constrained_mem > 0 && constrained_mem < uv_get_total_memory())
+            hint = constrained_mem;
+    }
+#endif
+    if (hint) {
+        if (hint < min_heap_size_hint)
+            hint = min_heap_size_hint;
+        jl_gc_set_max_memory(hint - mem_reserve);
+    }
+
+    // MMTK supports setting the heap size using the
+    // MMTK_MIN_HSIZE and MMTK_MAX_HSIZE environment variables
     long long min_heap_size;
     long long max_heap_size;
     char* min_size_def = getenv("MMTK_MIN_HSIZE");
@@ -91,7 +103,8 @@ void jl_gc_init(void) {
     char* max_size_def = getenv("MMTK_MAX_HSIZE");
     char* max_size_gb = getenv("MMTK_MAX_HSIZE_G");
 
-    // default min heap currently set as Julia's default_collect_interval
+    // If min and max values are not specified, set them to 0 here
+    // and use stock heuristics as defined in the binding
     if (min_size_def != NULL) {
         char *p;
         double min_size = strtod(min_size_def, &p);
@@ -101,10 +114,9 @@ void jl_gc_init(void) {
         double min_size = strtod(min_size_gb, &p);
         min_heap_size = (long) 1024 * 1024 * 1024 * min_size;
     } else {
-        min_heap_size = default_collect_interval;
+        min_heap_size = 0;
     }
 
-    // default max heap currently set as 70% the free memory in the system
     if (max_size_def != NULL) {
         char *p;
         double max_size = strtod(max_size_def, &p);
@@ -114,7 +126,7 @@ void jl_gc_init(void) {
         double max_size = strtod(max_size_gb, &p);
         max_heap_size = (long) 1024 * 1024 * 1024 * max_size;
     } else {
-        max_heap_size = uv_get_free_memory() * 70 / 100;
+        max_heap_size = 0;
     }
 
     // Assert that the number of stock GC threads is 0; MMTK uses the number of threads in jl_options.ngcthreads
@@ -153,9 +165,10 @@ void jl_init_thread_heap(struct _jl_tls_states_t *ptls) JL_NOTSAFEPOINT {
     small_arraylist_new(&heap->live_tasks, 0);
     for (int i = 0; i < JL_N_STACK_POOLS; i++)
         small_arraylist_new(&heap->free_stacks[i], 0);
-    heap->mallocarrays = NULL;
-    heap->mafreelist = NULL;
+    small_arraylist_new(&heap->mallocarrays, 0);
     arraylist_new(&ptls->finalizers, 0);
+    // Initialize `lazily_freed_mtarraylist_buffers`
+    small_arraylist_new(&ptls->lazily_freed_mtarraylist_buffers, 0);
     // Clear the malloc sz count
     jl_atomic_store_relaxed(&ptls->gc_tls.malloc_sz_since_last_poll, 0);
     // Create mutator
@@ -172,10 +185,20 @@ void jl_free_thread_gc_state(struct _jl_tls_states_t *ptls) {
 }
 
 JL_DLLEXPORT void jl_gc_set_max_memory(uint64_t max_mem) {
-    // MMTk currently does not allow setting the heap size at runtime
+#ifdef _P32
+    max_mem = max_mem < MAX32HEAP ? max_mem : MAX32HEAP;
+#endif
+    max_total_memory = max_mem;
 }
 
-inline void maybe_collect(jl_ptls_t ptls)
+JL_DLLEXPORT uint64_t jl_gc_get_max_memory(void)
+{
+    // FIXME: We should return the max heap size set in MMTk
+    // when not using Julia's heap resizing heuristics
+    return max_total_memory;
+}
+
+STATIC_INLINE void maybe_collect(jl_ptls_t ptls)
 {
     // Just do a safe point for general maybe_collect
     jl_gc_safepoint_(ptls);
@@ -192,7 +215,8 @@ static inline void malloc_maybe_collect(jl_ptls_t ptls, size_t sz)
         jl_atomic_store_relaxed(&ptls->gc_tls.malloc_sz_since_last_poll, 0);
         mmtk_gc_poll(ptls);
     } else {
-        jl_atomic_fetch_add_relaxed(&ptls->gc_tls.malloc_sz_since_last_poll, sz);
+        size_t curr = jl_atomic_load_relaxed(&ptls->gc_tls.malloc_sz_since_last_poll);
+        jl_atomic_store_relaxed(&ptls->gc_tls.malloc_sz_since_last_poll, curr + sz);
         jl_gc_safepoint_(ptls);
     }
 }
@@ -214,7 +238,7 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection) {
 
 // Based on jl_gc_collect from gc-stock.c
 // called when stopping the thread in `mmtk_block_for_gc`
-JL_DLLEXPORT void jl_mmtk_prepare_to_collect(void)
+JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
 {
     // FIXME: set to JL_GC_AUTO since we're calling it from mmtk
     // maybe just remove this?
@@ -270,8 +294,6 @@ JL_DLLEXPORT void jl_mmtk_prepare_to_collect(void)
     gc_num.total_time_to_safepoint += duration;
 
     if (!jl_atomic_load_acquire(&jl_gc_disable_counter)) {
-        // This thread will yield.
-        jl_gc_notify_thread_yield(ptls, NULL);
         JL_LOCK_NOGC(&finalizers_lock); // all the other threads are stopped, so this does not make sense, right? otherwise, failing that, this seems like plausibly a deadlock
 #ifndef __clang_gcanalyzer__
         mmtk_block_thread_for_gc();
@@ -318,11 +340,12 @@ JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx) {
     memcpy(&ptls->gc_tls.ctx_at_the_time_gc_started, ctx, sizeof(ucontext_t));
 }
 
+
 // ========================================================================= //
 // GC Statistics
 // ========================================================================= //
 
-JL_DLLEXPORT const char* jl_active_gc_impl(void) {
+JL_DLLEXPORT const char* jl_gc_active_impl(void) {
     const char* mmtk_version = get_mmtk_version();
     return mmtk_version;
 }
@@ -446,12 +469,6 @@ JL_DLLEXPORT void jl_gc_get_total_bytes(int64_t *bytes) JL_NOTSAFEPOINT
     *bytes = (num.total_allocd + num.deferred_alloc + num.allocd);
 }
 
-JL_DLLEXPORT uint64_t jl_gc_get_max_memory(void)
-{
-    // FIXME: should probably return MMTk's heap size
-    return max_total_memory;
-}
-
 // These are needed to collect MMTk statistics from a Julia program using ccall
 JL_DLLEXPORT void (jl_mmtk_harness_begin)(void)
 {
@@ -494,7 +511,7 @@ static void add_node_to_tpinned_roots_buffer(RootsWorkClosure* closure, RootsWor
     }
 }
 
-JL_DLLEXPORT void jl_mmtk_scan_vm_specific_roots(RootsWorkClosure* closure)
+JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
 {
     // Create a new buf
     RootsWorkBuffer buf = (closure->report_nodes_func)((void**)0, 0, 0, closure->data, true);
@@ -521,7 +538,6 @@ JL_DLLEXPORT void jl_mmtk_scan_vm_specific_roots(RootsWorkClosure* closure)
     // constants
     add_node_to_roots_buffer(closure, &buf, &len, jl_emptytuple_type);
     add_node_to_roots_buffer(closure, &buf, &len, cmpswap_names);
-    add_node_to_roots_buffer(closure, &buf, &len, precompile_field_replace);
 
     // jl_global_roots_table must be transitively pinned
     RootsWorkBuffer tpinned_buf = (closure->report_tpinned_nodes_func)((void**)0, 0, 0, closure->data, true);
@@ -529,19 +545,23 @@ JL_DLLEXPORT void jl_mmtk_scan_vm_specific_roots(RootsWorkClosure* closure)
     add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_list);
     add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_keyset);
 
+    // FIXME: transivitely pinning for now, should be removed after we add moving Immix
+    add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, precompile_field_replace);
+
     // Push the result of the work.
     (closure->report_nodes_func)(buf.ptr, len, buf.cap, closure->data, false);
     (closure->report_tpinned_nodes_func)(tpinned_buf.ptr, tpinned_len, tpinned_buf.cap, closure->data, false);
 }
 
-JL_DLLEXPORT void jl_mmtk_scan_julia_exc_obj(void* obj_raw, void* closure, ProcessSlotFn process_slot) {
+JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, ProcessSlotFn process_slot) {
     jl_task_t *ta = (jl_task_t*)obj_raw;
 
     if (ta->excstack) { // inlining label `excstack` from mark_loop
-        // if it is not managed by MMTk, nothing needs to be done because the object does not need to be scanned
-        if (mmtk_object_is_managed_by_mmtk(ta->excstack)) {
-            process_slot(closure, &ta->excstack);
-        }
+
+        // the excstack should always be a heap object
+        assert(mmtk_object_is_managed_by_mmtk(ta->excstack));
+
+        process_slot(closure, &ta->excstack);
         jl_excstack_t *excstack = ta->excstack;
         size_t itr = ta->excstack->top;
         size_t bt_index = 0;
@@ -578,65 +598,52 @@ JL_DLLEXPORT void jl_mmtk_scan_julia_exc_obj(void* obj_raw, void* closure, Proce
 // This is used in mmtk_sweep_malloced_memory and it is slightly different
 // from jl_gc_free_memory from gc-stock.c as the stock GC updates the
 // information in the global variable gc_heap_stats (which is specific to the stock GC)
-static void jl_gc_free_memory(jl_value_t *v, int isaligned) JL_NOTSAFEPOINT
+static void jl_gc_free_memory(jl_genericmemory_t *m, int isaligned) JL_NOTSAFEPOINT
 {
-    assert(jl_is_genericmemory(v));
-    jl_genericmemory_t *m = (jl_genericmemory_t*)v;
+    assert(jl_is_genericmemory(m));
     assert(jl_genericmemory_how(m) == 1 || jl_genericmemory_how(m) == 2);
     char *d = (char*)m->ptr;
+    size_t freed_bytes = memory_block_usable_size(d, isaligned);
+    assert(freed_bytes != 0);
     if (isaligned)
         jl_free_aligned(d);
     else
         free(d);
-    gc_num.freed += jl_genericmemory_nbytes(m);
+    gc_num.freed += freed_bytes;
     gc_num.freecall++;
 }
 
-JL_DLLEXPORT void jl_mmtk_sweep_malloced_memory(void) JL_NOTSAFEPOINT
+JL_DLLEXPORT void jl_gc_mmtk_sweep_malloced_memory(void) JL_NOTSAFEPOINT
 {
     void* iter = mmtk_new_mutator_iterator();
     jl_ptls_t ptls2 = (jl_ptls_t)mmtk_get_next_mutator_tls(iter);
     while(ptls2 != NULL) {
-        mallocmemory_t *ma = ptls2->gc_tls_common.heap.mallocarrays;
-        mallocmemory_t **pma = &ptls2->gc_tls_common.heap.mallocarrays;
-        while (ma != NULL) {
-            mallocmemory_t *nxt = ma->next;
-            jl_value_t *a = (jl_value_t*)((uintptr_t)ma->a & ~1);
-            if (!mmtk_object_is_managed_by_mmtk(a)) {
-                pma = &ma->next;
-                ma = nxt;
-                continue;
-            }
-            if (mmtk_is_live_object(a)) {
-                // if the array has been forwarded, the reference needs to be updated
-                jl_genericmemory_t *maybe_forwarded = (jl_genericmemory_t*)mmtk_get_possibly_forwarded(ma->a);
-                ma->a = maybe_forwarded;
-                pma = &ma->next;
+        size_t n = 0;
+        size_t l = ptls2->gc_tls_common.heap.mallocarrays.len;
+        void **lst = ptls2->gc_tls_common.heap.mallocarrays.items;
+        // filter without preserving order
+        while (n < l) {
+            jl_genericmemory_t *m = (jl_genericmemory_t*)((uintptr_t)lst[n] & ~1);
+            if (mmtk_is_live_object(m)) {
+                n++;
             }
             else {
-                *pma = nxt;
-                int isaligned = (uintptr_t)ma->a & 1;
-                jl_gc_free_memory(a, isaligned);
-                ma->next = ptls2->gc_tls_common.heap.mafreelist;
-                ptls2->gc_tls_common.heap.mafreelist = ma;
+                int isaligned = (uintptr_t)lst[n] & 1;
+                jl_gc_free_memory(m, isaligned);
+                l--;
+                lst[n] = lst[l];
             }
-            ma = nxt;
         }
+        ptls2->gc_tls_common.heap.mallocarrays.len = l;
         ptls2 = (jl_ptls_t)mmtk_get_next_mutator_tls(iter);
     }
-    gc_sweep_sysimg();
     mmtk_close_mutator_iterator(iter);
 }
-
-
-
-// number of stacks to always keep available per pool - from gc-stacks.c
-#define MIN_STACK_MAPPINGS_PER_POOL 5
 
 #define jl_genericmemory_elsize(a) (((jl_datatype_t*)jl_typetagof(a))->layout->size)
 
 // if data is inlined inside the genericmemory object --- to->ptr needs to be updated when copying the array
-JL_DLLEXPORT void jl_mmtk_update_inlined_array(void* from, void* to) {
+JL_DLLEXPORT void jl_gc_update_inlined_array(void* from, void* to) {
     jl_value_t* jl_from = (jl_value_t*) from;
     jl_value_t* jl_to = (jl_value_t*) to;
 
@@ -658,7 +665,7 @@ JL_DLLEXPORT void jl_mmtk_update_inlined_array(void* from, void* to) {
 }
 
 // modified sweep_stack_pools from gc-stacks.c
-JL_DLLEXPORT void jl_mmtk_sweep_stack_pools(void)
+JL_DLLEXPORT void jl_gc_mmtk_sweep_stack_pools(void)
 {
     // Stack sweeping algorithm:
     //    // deallocate stacks if we have too many sitting around unused
@@ -747,13 +754,19 @@ JL_DLLEXPORT void jl_mmtk_sweep_stack_pools(void)
     }
 }
 
-JL_DLLEXPORT void* jl_mmtk_get_stackbase(int16_t tid) {
+JL_DLLEXPORT void jl_gc_sweep_stack_pools_and_mtarraylist_buffers(jl_ptls_t ptls) JL_NOTSAFEPOINT
+{
+    jl_gc_mmtk_sweep_stack_pools();
+    sweep_mtarraylist_buffers();
+}
+
+JL_DLLEXPORT void* jl_gc_get_stackbase(int16_t tid) {
     assert(tid >= 0);
     jl_ptls_t ptls2 = jl_all_tls_states[tid];
     return ptls2->stackbase;
 }
 
-JL_DLLEXPORT void jl_mmtk_update_gc_stats(uint64_t inc, size_t mmtk_live_bytes, bool is_nursery_gc) {
+JL_DLLEXPORT void jl_gc_update_stats(uint64_t inc, size_t mmtk_live_bytes, bool is_nursery_gc) {
     gc_num.total_time += inc;
     gc_num.pause += 1;
     gc_num.full_sweep += !(is_nursery_gc);
@@ -764,13 +777,13 @@ JL_DLLEXPORT void jl_mmtk_update_gc_stats(uint64_t inc, size_t mmtk_live_bytes, 
 
 #define jl_genericmemory_data_owner_field_addr(a) ((jl_value_t**)((jl_genericmemory_t*)(a) + 1))
 
-JL_DLLEXPORT void* jl_mmtk_get_owner_address(void* m) {
+JL_DLLEXPORT void* jl_gc_get_owner_address_to_mmtk(void* m) {
     return (void*)jl_genericmemory_data_owner_field_addr(m);
 }
 
 // same as jl_genericmemory_how but with JL_DLLEXPORT
 // we should probably inline this in Rust
-JL_DLLEXPORT size_t jl_mmtk_genericmemory_how(void *arg) JL_NOTSAFEPOINT
+JL_DLLEXPORT size_t jl_gc_genericmemory_how(void *arg) JL_NOTSAFEPOINT
 {
     jl_genericmemory_t* m = (jl_genericmemory_t*)arg;
     if (m->ptr == (void*)((char*)m + 16)) // JL_SMALL_BYTE_ALIGNMENT (from julia_internal.h)
@@ -795,22 +808,23 @@ JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref_th(jl_ptls_t ptls, jl_value_t *valu
     return wr;
 }
 
-JL_DLLEXPORT void* jl_mmtk_get_thread_finalizer_list(void* ptls_raw) {
+JL_DLLEXPORT void* jl_gc_get_thread_finalizer_list(void* ptls_raw) {
     jl_ptls_t ptls = (jl_ptls_t) ptls_raw;
     return (void*)&ptls->finalizers;
 }
 
-JL_DLLEXPORT void* jl_mmtk_get_to_finalize_list(void) {
+JL_DLLEXPORT void* jl_gc_get_to_finalize_list(void) {
     return (void*)&to_finalize;
 }
 
-JL_DLLEXPORT void* jl_mmtk_get_marked_finalizers_list(void) {
+JL_DLLEXPORT void* jl_gc_get_marked_finalizers_list(void) {
     return (void*)&finalizer_list_marked;
 }
 
-JL_DLLEXPORT int* jl_mmtk_get_have_pending_finalizers(void) {
+JL_DLLEXPORT int* jl_gc_get_have_pending_finalizers(void) {
     return (int*)&jl_gc_have_pending_finalizers;
 }
+
 
 // ========================================================================= //
 // Write barriers
@@ -856,14 +870,15 @@ int jl_gc_classify_pools(size_t sz, int *osize)
     *osize = LLT_ALIGN(allocsz, 16);
     return 0; // use MMTk's fastpath logic
 }
+
 #define MMTK_MIN_ALIGNMENT 4
 // MMTk assumes allocation size is aligned to min alignment.
-inline size_t mmtk_align_alloc_sz(size_t sz) JL_NOTSAFEPOINT
+STATIC_INLINE size_t mmtk_align_alloc_sz(size_t sz) JL_NOTSAFEPOINT
 {
     return (sz + MMTK_MIN_ALIGNMENT - 1) & ~(MMTK_MIN_ALIGNMENT - 1);
 }
 
-inline void* bump_alloc_fast(MMTkMutatorContext* mutator, uintptr_t* cursor, uintptr_t limit, size_t size, size_t align, size_t offset, int allocator) {
+STATIC_INLINE void* bump_alloc_fast(MMTkMutatorContext* mutator, uintptr_t* cursor, uintptr_t limit, size_t size, size_t align, size_t offset, int allocator) {
     intptr_t delta = (-offset - *cursor) & (align - 1);
     uintptr_t result = *cursor + (uintptr_t)delta;
 
@@ -888,23 +903,23 @@ inline void mmtk_set_side_metadata(const void* side_metadata_base, void* obj) {
         }
 }
 
-inline void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
+STATIC_INLINE void* mmtk_immix_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     ImmixAllocator* allocator = &mutator->allocators.immix[MMTK_DEFAULT_IMMIX_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 0);
 }
 
-inline void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+STATIC_INLINE void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
     if (MMTK_NEEDS_VO_BIT) {
         mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
     }
 }
 
-inline void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
+STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     BumpAllocator* allocator = &mutator->allocators.bump_pointer[MMTK_IMMORTAL_BUMP_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (uintptr_t)allocator->limit, size, align, offset, 1);
 }
 
-inline void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+STATIC_INLINE  void mmtk_immortal_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
     if (MMTK_NEEDS_WRITE_BARRIER == MMTK_OBJECT_BARRIER) {
         mmtk_set_side_metadata(MMTK_SIDE_LOG_BIT_BASE_ADDRESS, obj);
     }
@@ -1140,6 +1155,7 @@ void jl_gc_notify_image_alloc(const char* img_data, size_t len)
 {
     mmtk_immortal_region_post_alloc((void*)img_data, len);
 }
+
 // ========================================================================= //
 // Code specific to stock that is not supported by MMTk
 // ========================================================================= //
@@ -1185,7 +1201,6 @@ _Atomic(int) gc_ptls_sweep_idx;
 // counter for round robin of giving back stack pages to the OS
 _Atomic(int) gc_stack_free_idx = 0;
 
-
 JL_DLLEXPORT void jl_gc_queue_root(const struct _jl_value_t *ptr) JL_NOTSAFEPOINT
 {
     mmtk_unreachable();
@@ -1202,6 +1217,7 @@ JL_DLLEXPORT int jl_gc_mark_queue_obj(jl_ptls_t ptls, jl_value_t *obj)
     mmtk_unreachable();
     return 0;
 }
+
 JL_DLLEXPORT void jl_gc_mark_queue_objarray(jl_ptls_t ptls, jl_value_t *parent,
                                             jl_value_t **objs, size_t nobjs)
 {
