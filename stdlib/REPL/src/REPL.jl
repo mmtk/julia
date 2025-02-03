@@ -33,9 +33,9 @@ function UndefVarError_hint(io::IO, ex::UndefVarError)
     if isdefined(ex, :scope)
         scope = ex.scope
         if scope isa Module
-            bpart = Base.lookup_binding_partition(Base.get_world_counter(), GlobalRef(scope, var))
+            bpart = Base.lookup_binding_partition(ex.world, GlobalRef(scope, var))
             kind = Base.binding_kind(bpart)
-            if kind === Base.BINDING_KIND_GLOBAL || kind === Base.BINDING_KIND_CONST || kind == Base.BINDING_KIND_DECLARED
+            if kind === Base.BINDING_KIND_GLOBAL || kind === Base.BINDING_KIND_UNDEF_CONST || kind == Base.BINDING_KIND_DECLARED
                 print(io, "\nSuggestion: add an appropriate import or assignment. This global was declared but not assigned.")
             elseif kind === Base.BINDING_KIND_FAILED
                 print(io, "\nHint: It looks like two or more modules export different ",
@@ -44,8 +44,8 @@ function UndefVarError_hint(io::IO, ex::UndefVarError)
                 "with the module it should come from.")
             elseif kind === Base.BINDING_KIND_GUARD
                 print(io, "\nSuggestion: check for spelling errors or missing imports.")
-            else
-                print(io, "\nSuggestion: this global was defined as `$(bpart.restriction.globalref)` but not assigned a value.")
+            elseif Base.is_some_imported(kind)
+                print(io, "\nSuggestion: this global was defined as `$(Base.partition_restriction(bpart).globalref)` but not assigned a value.")
             end
         elseif scope === :static_parameter
             print(io, "\nSuggestion: run Test.detect_unbound_args to detect method arguments that do not fully constrain a type parameter.")
@@ -1771,8 +1771,6 @@ function banner(io::IO = stdout; short = false)
         end
     end
 
-    gc_version = unsafe_string(ccall(:jl_active_gc_impl, Ptr{UInt8}, ()))
-
     commit_date = isempty(Base.GIT_VERSION_INFO.date_string) ? "" : " ($(split(Base.GIT_VERSION_INFO.date_string)[1]))"
 
     if get(io, :color, false)::Bool
@@ -1786,7 +1784,7 @@ function banner(io::IO = stdout; short = false)
 
         if short
             print(io,"""
-              $(d3)o$(tx)  | Version $(VERSION)$(commit_date) $(gc_version)
+              $(d3)o$(tx)  | Version $(VERSION)$(commit_date)
              $(d2)o$(tx) $(d4)o$(tx) | $(commit_string)
             """)
         else
@@ -1797,14 +1795,14 @@ function banner(io::IO = stdout; short = false)
               $(jl)| | | | | | |/ _` |$(tx)  |
               $(jl)| | |_| | | | (_| |$(tx)  |  Version $(VERSION)$(commit_date)
              $(jl)_/ |\\__'_|_|_|\\__'_|$(tx)  |  $(commit_string)
-            $(jl)|__/$(tx)                   |  $(gc_version)
+            $(jl)|__/$(tx)                   |
 
             """)
         end
     else
         if short
             print(io,"""
-              o  |  Version $(VERSION)$(commit_date) $(gc_version)
+              o  |  Version $(VERSION)$(commit_date)
              o o |  $(commit_string)
             """)
         else
@@ -1816,7 +1814,7 @@ function banner(io::IO = stdout; short = false)
               | | | | | | |/ _` |  |
               | | |_| | | | (_| |  |  Version $(VERSION)$(commit_date)
              _/ |\\__'_|_|_|\\__'_|  |  $(commit_string)
-            |__/                   |  $(gc_version)
+            |__/                   |
 
             """)
         end
@@ -1886,16 +1884,26 @@ function get_usings!(usings, ex)
     return usings
 end
 
+function create_global_out!(mod)
+    if !isdefinedglobal(mod, :Out)
+        out = Dict{Int, Any}()
+        @eval mod begin
+            const Out = $(out)
+            export Out
+        end
+        return out
+    end
+    return getglobal(mod, Out)
+end
+
 function capture_result(n::Ref{Int}, @nospecialize(x))
     n = n[]
     mod = Base.MainInclude
-    if !isdefined(mod, :Out)
-        @eval mod global Out
-        @eval mod export Out
-        setglobal!(mod, :Out, Dict{Int, Any}())
-    end
-    if x !== getglobal(mod, :Out) && x !== nothing # remove this?
-        getglobal(mod, :Out)[n] = x
+    # TODO: This invokelatest is only required due to backdated constants
+    # and should be removed after
+    out = isdefinedglobal(mod, :Out) ? invokelatest(getglobal, mod, :Out) : invokelatest(create_global_out!, mod)
+    if x !== out && x !== nothing # remove this?
+        out[n] = x
     end
     nothing
 end

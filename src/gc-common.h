@@ -68,13 +68,6 @@ extern jl_gc_callback_list_t *gc_cblist_notify_external_alloc;
 extern jl_gc_callback_list_t *gc_cblist_notify_external_free;
 extern jl_gc_callback_list_t *gc_cblist_notify_gc_pressure;
 
-// FIXME: These are specific to the Stock GC but being declared here
-// for now, instead of gc-stock.h. We might want to refactor the
-// code in gc-stacks.c that uses these
-extern _Atomic(int) gc_ptls_sweep_idx;
-extern _Atomic(int) gc_stack_free_idx;
-extern _Atomic(int) gc_n_threads_sweeping_stacks;
-
 #define gc_invoke_callbacks(ty, list, args) \
     do { \
         for (jl_gc_callback_list_t *cb = list; \
@@ -92,12 +85,6 @@ extern _Atomic(int) gc_n_threads_sweeping_stacks;
 // =========================================================================== //
 // malloc wrappers, aligned allocation
 // =========================================================================== //
-
-// data structure for tracking malloc'd genericmemory.
-typedef struct _mallocmemory_t {
-    jl_genericmemory_t *a; // lowest bit is tagged if this is aligned memory
-    struct _mallocmemory_t *next;
-} mallocmemory_t;
 
 #if defined(_OS_WINDOWS_)
 STATIC_INLINE void *jl_malloc_aligned(size_t sz, size_t align)
@@ -224,5 +211,15 @@ extern jl_ptls_t* gc_all_tls_states;
 // =========================================================================== //
 
 extern int gc_logging_enabled;
+
+// =========================================================================== //
+// MISC
+// =========================================================================== //
+
+// number of stacks to always keep available per pool
+#define MIN_STACK_MAPPINGS_PER_POOL 5
+
+void _jl_free_stack(jl_ptls_t ptls, void *stkbuf, size_t bufsz) JL_NOTSAFEPOINT;
+void sweep_mtarraylist_buffers(void) JL_NOTSAFEPOINT;
 
 #endif // JL_GC_COMMON_H

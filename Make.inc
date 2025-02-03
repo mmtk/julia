@@ -51,7 +51,7 @@ USE_SYSTEM_MPFR:=0
 USE_SYSTEM_LIBSUITESPARSE:=0
 USE_SYSTEM_LIBUV:=0
 USE_SYSTEM_UTF8PROC:=0
-USE_SYSTEM_MBEDTLS:=0
+USE_SYSTEM_OPENSSL:=0
 USE_SYSTEM_LIBSSH2:=0
 USE_SYSTEM_NGHTTP2:=0
 USE_SYSTEM_CURL:=0
@@ -489,11 +489,15 @@ endif
 # Set to 1 to enable profiling with perf
 ifeq ("$(OS)", "Linux")
 USE_PERF_JITEVENTS ?= 1
+ifeq ($(ARCH),x86_64)
 USE_INTEL_JITEVENTS ?= 1
-else
+else # ARCH x86_64
+USE_INTEL_JITEVENTS ?= 0
+endif # ARCH x86_64
+else # OS Linux
 USE_PERF_JITEVENTS ?= 0
 USE_INTEL_JITEVENTS ?= 0
-endif
+endif # OS Linux
 
 JULIACODEGEN := LLVM
 
@@ -833,18 +837,10 @@ JCFLAGS += -DGC_DEBUG_ENV
 endif
 
 ifneq (${MMTK_PLAN},None)
-ifeq (${MMTK_JULIA_DIR},)
-$(error MMTK_JULIA_DIR must be set to use MMTk)
-endif
 JCXXFLAGS += -DMMTK_GC
 JCFLAGS += -DMMTK_GC
-ifeq (${MMTK_BUILD},)
-ifeq (debug,$(findstring debug,$(MAKECMDGOALS)))
-MMTK_BUILD = debug
-else
-MMTK_BUILD = release
-endif
-endif
+# Do a release build on the binding by default
+MMTK_BUILD ?= release
 ifeq (${MMTK_PLAN},Immix)
 JCXXFLAGS += -DMMTK_PLAN_IMMIX
 JCFLAGS += -DMMTK_PLAN_IMMIX
@@ -854,17 +850,15 @@ JCFLAGS += -DMMTK_PLAN_STICKYIMMIX
 else
 $(error "Unsupported MMTk plan: $(MMTK_PLAN)")
 endif
+
+# Location of mmtk-julia binding
+# (needed for api/*.h and .so file)
+MMTK_JULIA_DIR ?= $(BUILDROOT)/usr/lib/mmtk_julia
+
 MMTK_DIR = ${MMTK_JULIA_DIR}/mmtk
-MMTK_API_INC = $(MMTK_DIR)/api
-ifeq ($(OS),Linux)
-MMTK_LIB_NAME := libmmtk_julia.so
-else
-$(error "Unsupported OS for MMTk")
-endif
-MMTK_LIB_SRC := $(MMTK_DIR)/target/$(MMTK_BUILD)/$(MMTK_LIB_NAME)
-MMTK_LIB_DST := $(BUILDROOT)/usr/lib/$(MMTK_LIB_NAME)
+MMTK_API_INC = ${MMTK_DIR}/api
+
 MMTK_LIB := -lmmtk_julia
-LDFLAGS += -Wl,-rpath=$(MMTK_DIR)/target/$(MMTK_BUILD)/
 else
 MMTK_JULIA_INC :=
 MMTK_LIB :=
@@ -968,6 +962,21 @@ endif
 ifeq ($(BUILD_OS),$(OS))
 ARCH := $(BUILD_OS)
 endif
+endif
+
+# MMTk is only available on x86_64 Linux for now
+ifneq (${MMTK_PLAN},None)
+
+ifeq ($(OS),Linux)
+MMTK_LIB_NAME := libmmtk_julia.so
+else
+$(error "Unsupported OS for MMTk")
+endif
+
+ifneq ($(ARCH),x86_64)
+$(error "Unsupported build architecture for MMTk")
+endif
+
 endif
 
 # Detect common pre-SSE2 JULIA_CPU_TARGET values known not to work (#7185)
@@ -1389,14 +1398,14 @@ LIBGFORTRAN_VERSION := $(subst libgfortran,,$(filter libgfortran%,$(subst -,$(SP
 # shipped with CSL. Although we do not depend on any of the symbols, it is entirely
 # possible that a user might choose to install a library which depends on symbols provided
 # by a newer libstdc++. Without runtime detection, those libraries would break.
-CSL_NEXT_GLIBCXX_VERSION=GLIBCXX_3\.4\.33|GLIBCXX_3\.5\.|GLIBCXX_4\.
+CSL_NEXT_GLIBCXX_VERSION=GLIBCXX_3\.4\.34|GLIBCXX_3\.5\.|GLIBCXX_4\.
 
 
 # This is the set of projects that BinaryBuilder dependencies are hooked up for.
 # Note: we explicitly _do not_ define `CSL` here, since it requires some more
 # advanced techniques to decide whether it should be installed from a BB source
 # or not.  See `deps/csl.mk` for more detail.
-BB_PROJECTS := BLASTRAMPOLINE OPENBLAS LLVM LIBSUITESPARSE OPENLIBM GMP MBEDTLS LIBSSH2 NGHTTP2 MPFR CURL LIBGIT2 PCRE LIBUV LIBUNWIND DSFMT OBJCONV ZLIB P7ZIP LLD LIBTRACYCLIENT BOLT
+BB_PROJECTS := BLASTRAMPOLINE OPENBLAS LLVM LIBSUITESPARSE OPENLIBM GMP OPENSSL LIBSSH2 NGHTTP2 MPFR CURL LIBGIT2 PCRE LIBUV LIBUNWIND DSFMT OBJCONV ZLIB P7ZIP LLD LIBTRACYCLIENT BOLT MMTK_JULIA
 define SET_BB_DEFAULT
 # First, check to see if BB is disabled on a global setting
 ifeq ($$(USE_BINARYBUILDER),0)
@@ -1511,7 +1520,7 @@ ifeq (,$(findstring aarch64,$(ARCH)))
 OSLIBS += -lgcc_s
 endif
 
-OSLIBS += -Wl,--export-dynamic -Wl,--undefined-version -Wl,--version-script=$(BUILDROOT)/src/julia.expmap \
+OSLIBS += -Wl,--export-dynamic -Wl,--version-script=$(BUILDROOT)/src/julia.expmap \
 	$(NO_WHOLE_ARCHIVE)
 endif
 
@@ -1864,9 +1873,6 @@ PRINT_PERL = printf '    %b %b\n' $(PERLCOLOR)PERL$(ENDCOLOR) $(BINCOLOR)$(GOAL)
 PRINT_FLISP = printf '    %b %b\n' $(FLISPCOLOR)FLISP$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
 PRINT_JULIA = printf '    %b %b\n' $(JULIACOLOR)JULIA$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
 PRINT_DTRACE = printf '    %b %b\n' $(DTRACECOLOR)DTRACE$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
-ifneq (${MMTK_PLAN},None)
-PRINT_MMTK = printf '    %b %b\n' $(LINKCOLOR)MMTK$(ENDCOLOR) $(BINCOLOR)$(GOAL)$(ENDCOLOR); $(1)
-endif
 
 else
 QUIET_MAKE =
@@ -1877,9 +1883,6 @@ PRINT_PERL = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_FLISP = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_JULIA = echo '$(subst ','\'',$(1))'; $(1)
 PRINT_DTRACE = echo '$(subst ','\'',$(1))'; $(1)
-ifneq (${MMTK_PLAN},None)
-PRINT_MMTK = echo '$(subst ','\'',$(1))'; $(1)
-endif
 
 endif # VERBOSE
 

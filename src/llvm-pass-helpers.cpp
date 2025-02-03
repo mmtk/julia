@@ -135,9 +135,7 @@ namespace jl_intrinsics {
     static Function *addGCAllocAttributes(Function *target)
     {
         auto FnAttrs = AttrBuilder(target->getContext());
-#if JL_LLVM_VERSION >= 160000
         FnAttrs.addMemoryAttr(MemoryEffects::argMemOnly(ModRefInfo::Ref) | MemoryEffects::inaccessibleMemOnly(ModRefInfo::ModRef));
-#endif
         FnAttrs.addAllocKindAttr(AllocFnKind::Alloc);
         FnAttrs.addAttribute(Attribute::WillReturn);
         FnAttrs.addAttribute(Attribute::NoUnwind);
@@ -234,11 +232,7 @@ namespace jl_intrinsics {
                     false),
                 Function::ExternalLinkage,
                 QUEUE_GC_ROOT_NAME);
-#if JL_LLVM_VERSION >= 160000
             intrinsic->setMemoryEffects(MemoryEffects::inaccessibleOrArgMemOnly());
-#else
-            intrinsic->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
-#endif
             return intrinsic;
         });
 
@@ -254,11 +248,7 @@ namespace jl_intrinsics {
                     false),
                 Function::ExternalLinkage,
                 SAFEPOINT_NAME);
-#if JL_LLVM_VERSION >= 160000
             intrinsic->setMemoryEffects(MemoryEffects::inaccessibleOrArgMemOnly());
-#else
-            intrinsic->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
-#endif
             return intrinsic;
         });
 
@@ -402,11 +392,7 @@ namespace jl_well_known {
                     false),
                 Function::ExternalLinkage,
                 GC_QUEUE_ROOT_NAME);
-#if JL_LLVM_VERSION >= 160000
             func->setMemoryEffects(MemoryEffects::inaccessibleOrArgMemOnly());
-#else
-            func->addFnAttr(Attribute::InaccessibleMemOrArgMemOnly);
-#endif
             return func;
         });
 
