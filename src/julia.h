@@ -86,6 +86,9 @@ extern "C" {
 
 // object pinning  ------------------------------------------------------------
 
+// Objects of a type that is JL_NON_MOVING will not be moved by GC
+#define JL_NON_MOVING
+
 // FIXME: Pinning objects that get hashed in the ptrhash table
 // until we implement address space hashing.
 #define OBJHASH_PIN(key) if (key) jl_gc_pin_object(key);
@@ -404,6 +407,7 @@ typedef struct _jl_method_t {
 // can can be used as a unique dictionary key representation of a call to a particular Method
 // with a particular set of argument types
 struct _jl_method_instance_t {
+    JL_NON_MOVING
     JL_DATA_TYPE
     union {
         jl_value_t *value; // generic accessor
@@ -436,6 +440,7 @@ typedef struct _jl_opaque_closure_t {
 
 // This type represents an executable operation
 typedef struct _jl_code_instance_t {
+    JL_NON_MOVING
     JL_DATA_TYPE
     jl_value_t *def; // MethodInstance or ABIOverride
     jl_value_t *owner; // Compiler token this belongs to, `jl_nothing` is reserved for native
@@ -515,6 +520,7 @@ typedef struct {
 // of a type and storing all data common to different instantiations of the type,
 // including a cache for hash-consed allocation of DataType objects.
 typedef struct {
+    JL_NON_MOVING
     JL_DATA_TYPE
     jl_sym_t *name;
     struct _jl_module_t *module;
@@ -595,6 +601,7 @@ typedef struct {
 } jl_datatype_layout_t;
 
 typedef struct _jl_datatype_t {
+    JL_NON_MOVING
     JL_DATA_TYPE
     jl_typename_t *name;
     struct _jl_datatype_t *super;
@@ -722,6 +729,7 @@ typedef struct {
 } jl_uuid_t;
 
 typedef struct _jl_module_t {
+    JL_NON_MOVING
     JL_DATA_TYPE
     jl_sym_t *name;
     struct _jl_module_t *parent;
