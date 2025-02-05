@@ -41,6 +41,8 @@ JL_DLLEXPORT jl_genericmemory_t *jl_alloc_genericmemory_unchecked(jl_ptls_t ptls
     m = (jl_genericmemory_t*)jl_gc_alloc(ptls, tot, mtype);
     if (pooled) {
         data = (char*)m + JL_SMALL_BYTE_ALIGNMENT;
+        // Data is inlined and ptr is an internal pointer. We pin the object so the ptr will not be invalid.
+        OBJ_PIN(m);
     }
     else {
         int isaligned = 1; // jl_gc_managed_malloc is always aligned

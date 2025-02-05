@@ -6261,7 +6261,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
                 decay_derived(ctx, phi));
             jl_cgval_t val = mark_julia_slot(ptr, phiType, Tindex_phi, best_tbaa(ctx.tbaa(), phiType));
             val.Vboxed = ptr_phi;
-            OBJ_PIN(r);
+            OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
             ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, ptr_phi, roots, r));
             ctx.SAvalues[idx] = val;
             ctx.ssavalue_assigned[idx] = true;
@@ -6271,7 +6271,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
             PHINode *Tindex_phi = PHINode::Create(getInt8Ty(ctx.builder.getContext()), jl_array_nrows(edges), "tindex_phi");
             Tindex_phi->insertInto(BB, InsertPt);
             jl_cgval_t val = mark_julia_slot(NULL, phiType, Tindex_phi, ctx.tbaa().tbaa_stack);
-            OBJ_PIN(r);
+            OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
             ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, (PHINode*)nullptr, roots, r));
             ctx.SAvalues[idx] = val;
             ctx.ssavalue_assigned[idx] = true;
@@ -6322,7 +6322,7 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
         value_phi->insertInto(BB, InsertPt);
         slot = mark_julia_type(ctx, value_phi, isboxed, phiType);
     }
-    OBJ_PIN(r);
+    OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
     ctx.PhiNodes.push_back(std::make_tuple(slot, BB, dest, value_phi, roots, r));
     ctx.SAvalues[idx] = slot;
     ctx.ssavalue_assigned[idx] = true;
