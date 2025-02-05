@@ -1662,14 +1662,14 @@ void jl_init_serializer(void)
 
     for (i = 2; i < 256; i++) {
         if (deser_tag[i]) {
-            PTRHASH_PIN(deser_tag[i])
+            OBJHASH_PIN(deser_tag[i])
             ptrhash_put(&ser_tag, deser_tag[i], (void*)i);
         }
     }
 
     i = 2;
     while (common_symbols[i-2] != NULL) {
-        PTRHASH_PIN(common_symbols[i-2])
+        OBJHASH_PIN(common_symbols[i-2])
         ptrhash_put(&common_symbol_tag, common_symbols[i-2], (void*)i);
         deser_symbols[i] = (jl_value_t*)common_symbols[i-2];
         i += 1;

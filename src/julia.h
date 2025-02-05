@@ -88,10 +88,14 @@ extern "C" {
 
 // FIXME: Pinning objects that get hashed in the ptrhash table
 // until we implement address space hashing.
-#define PTRHASH_PIN(key) jl_gc_pin_object(key);
+#define OBJHASH_PIN(key) if (key) jl_gc_pin_object(key);
+#define PTRHASH_PIN(key) if (key) jl_gc_pin_pointer(key);
 
 // Called when pinning objects that would cause an error if moved
-#define PTR_PIN(key) jl_gc_pin_object(key);
+// The difference: the argument for pin_object needs to pointer to an object (jl_value_t*),
+// but the argument for pin_pointer can be an internal pointer.
+#define OBJ_PIN(key) if (key) jl_gc_pin_object(key);
+#define PTR_PIN(key) if (key) jl_gc_pin_pointer(key);
 
 // core data types ------------------------------------------------------------
 
