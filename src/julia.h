@@ -77,6 +77,8 @@ typedef struct _jl_tls_states_t *jl_ptls_t;
 // the common fields are hidden before the pointer, but the following macro is
 // used to indicate which types below are subtypes of jl_value_t
 #define JL_DATA_TYPE
+// Objects of a type that is JL_NON_MOVING will not be moved by GC
+#define JL_NON_MOVING
 typedef struct _jl_value_t jl_value_t;
 #include "julia_threads.h"
 
@@ -85,9 +87,6 @@ extern "C" {
 #endif
 
 // object pinning  ------------------------------------------------------------
-
-// Objects of a type that is JL_NON_MOVING will not be moved by GC
-#define JL_NON_MOVING
 
 // FIXME: Pinning objects that get hashed in the ptrhash table
 // until we implement address space hashing.
