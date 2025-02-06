@@ -411,7 +411,7 @@ typedef struct _jl_method_t {
 // can can be used as a unique dictionary key representation of a call to a particular Method
 // with a particular set of argument types
 struct _jl_method_instance_t {
-    JL_NON_MOVING
+    JL_NON_MOVING // Non moving, as it is referenced in a map in JITDebugInfoRegistry
     JL_DATA_TYPE
     union {
         jl_value_t *value; // generic accessor
@@ -444,7 +444,7 @@ typedef struct _jl_opaque_closure_t {
 
 // This type represents an executable operation
 typedef struct _jl_code_instance_t {
-    JL_NON_MOVING
+    JL_NON_MOVING // Pin codeinst, as they are referenced by vectors and maps in _jl_codegen_params_t
     JL_DATA_TYPE
     jl_value_t *def; // MethodInstance or ABIOverride
     jl_value_t *owner; // Compiler token this belongs to, `jl_nothing` is reserved for native
@@ -524,7 +524,7 @@ typedef struct {
 // of a type and storing all data common to different instantiations of the type,
 // including a cache for hash-consed allocation of DataType objects.
 typedef struct {
-    JL_NON_MOVING
+    JL_NON_MOVING // Typenames should be pinned since they are used as metadata, and are read during scan_object
     JL_DATA_TYPE
     jl_sym_t *name;
     struct _jl_module_t *module;
@@ -605,7 +605,7 @@ typedef struct {
 } jl_datatype_layout_t;
 
 typedef struct _jl_datatype_t {
-    JL_NON_MOVING
+    JL_NON_MOVING // Types should not be moved. It is also referenced from the native heap in jl_raw_alloc_t.
     JL_DATA_TYPE
     jl_typename_t *name;
     struct _jl_datatype_t *super;
@@ -733,7 +733,7 @@ typedef struct {
 } jl_uuid_t;
 
 typedef struct _jl_module_t {
-    JL_NON_MOVING
+    JL_NON_MOVING // modules are referenced in jl_current_modules (htable). They cannot move.
     JL_DATA_TYPE
     jl_sym_t *name;
     struct _jl_module_t *parent;
