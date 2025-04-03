@@ -181,7 +181,7 @@ static void jl_optimize_roots(jl_codegen_params_t &params, jl_method_instance_t 
         JL_LOCK(&m->writelock);
     for (size_t i = 0; i < jl_array_dim0(params.temporary_roots); i++) {
         jl_value_t *val = jl_array_ptr_ref(params.temporary_roots, i);
-        auto ref = params.global_targets.find((void*)val);
+        auto ref = params.global_targets.find(jl_pinned_ref_assume(void, val));
         if (ref == params.global_targets.end())
             continue;
         auto get_global_root = [val, m]() {
@@ -202,13 +202,13 @@ static void jl_optimize_roots(jl_codegen_params_t &params, jl_method_instance_t 
         if (mval != val) {
             GlobalVariable *GV = ref->second;
             params.global_targets.erase(ref);
-            auto mref = params.global_targets.find((void*)mval);
+            auto mref = params.global_targets.find(jl_pinned_ref_assume(void, mval));
             if (mref != params.global_targets.end()) {
                 GV->replaceAllUsesWith(mref->second);
                 GV->eraseFromParent();
             }
             else {
-                params.global_targets[(void*)mval] = GV;
+                params.global_targets[jl_pinned_ref_create(void, mval)] = GV;
             }
         }
     }
