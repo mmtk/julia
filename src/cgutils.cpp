@@ -397,8 +397,7 @@ static Constant *julia_pgv(jl_codegen_params_t &params, Module *M, const char *c
     // emit a GlobalVariable for a jl_value_t named "cname"
     // store the name given so we can reuse it (facilitating merging later)
     // so first see if there already is a GlobalVariable for this address
-    OBJ_PIN(addr); // This will be stored in the native heap. We need to pin it.
-    GlobalVariable* &gv = params.global_targets[addr];
+    GlobalVariable* &gv = params.global_targets[jl_pinned_ref_create(void, addr)];
     StringRef localname;
     std::string gvname;
     if (!gv) {
