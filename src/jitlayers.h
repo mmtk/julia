@@ -241,7 +241,7 @@ struct jl_codegen_params_t {
     jl_workqueue_t workqueue;
     SmallVector<cfunc_decl_t,0> cfuncs;
     // This map may hold Julia obj ref in the native heap. We need to pin the void*.
-    std::map<void*, GlobalVariable*> global_targets;
+    std::map<jl_pinned_ref(void), GlobalVariable*> global_targets;
     jl_array_t *temporary_roots = nullptr;
     SmallSet<jl_value_t *, 8> temporary_roots_set;
     std::map<std::tuple<jl_code_instance_t*,bool>, GlobalVariable*> external_fns;
