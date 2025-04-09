@@ -133,8 +133,8 @@ public:
 // Primary type definition
 #define jl_pinned_ref(T) union { T* t; void* unused; }
 #define jl_pinned_ref_assume(T, ptr) ((jl_pinned_ref(T)){ .t = (ptr) })
-// Creation macro
-#define jl_pinned_ref_create(T, ptr) OBJ_PIN(ptr); jl_pinned_ref_assume(T, ptr)
+// Assignment macro
+#define jl_pinned_ref_set(lhs, ptr) OBJ_PIN(ptr); jl_pinned_ref_get(lhs) = ptr;
 // Getter macro
 #define jl_pinned_ref_get(ref) ((ref).t)
 

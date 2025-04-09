@@ -19,7 +19,7 @@ extern _Atomic(jl_ptls_t*) jl_all_tls_states JL_GLOBALLY_ROOTED; /* thread local
 typedef struct _jl_threadarg_t {
     int16_t tid;
     uv_barrier_t *barrier;
-    void *arg;
+    void* arg; // can this be a heap object?
 } jl_threadarg_t;
 
 // each thread must initialize its TLS
