@@ -1395,7 +1395,7 @@ void jl_ctor_def(jl_value_t *ty, jl_value_t *functionloc);
 typedef struct _jl_bt_element_t {
     union {
         uintptr_t   uintptr; // Metadata or native instruction ptr
-        jl_value_t* jlvalue; // Pointer to GC-managed value
+        jl_pinned_ref(jl_value_t) jlvalue; // Pointer to GC-managed value
     };
 } jl_bt_element_t;
 
@@ -1444,7 +1444,7 @@ STATIC_INLINE uintptr_t jl_bt_entry_header(jl_bt_element_t *bt_entry) JL_NOTSAFE
 // The returned value is rooted for the lifetime of the parent exception stack.
 STATIC_INLINE jl_value_t *jl_bt_entry_jlvalue(jl_bt_element_t *bt_entry, size_t i) JL_NOTSAFEPOINT
 {
-    return bt_entry[2 + i].jlvalue;
+    return jl_pinned_ref_get(bt_entry[2 + i].jlvalue);
 }
 
 #define JL_BT_INTERP_FRAME_TAG    1  // An interpreter frame
@@ -1563,7 +1563,7 @@ STATIC_INLINE jl_bt_element_t *jl_excstack_raw(jl_excstack_t *stack) JL_NOTSAFEP
 STATIC_INLINE jl_value_t *jl_excstack_exception(jl_excstack_t *stack JL_PROPAGATES_ROOT,
                                                 size_t itr) JL_NOTSAFEPOINT
 {
-    return jl_excstack_raw(stack)[itr-1].jlvalue;
+    return jl_pinned_ref_get(jl_excstack_raw(stack)[itr-1].jlvalue);
 }
 STATIC_INLINE size_t jl_excstack_bt_size(jl_excstack_t *stack, size_t itr) JL_NOTSAFEPOINT
 {

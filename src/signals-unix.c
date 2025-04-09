@@ -908,7 +908,7 @@ static void do_profile(void *ctx)
         profile_bt_data_prof[profile_bt_size_cur++].uintptr = ptls2->tid + 1;
 
         // store task id (never null)
-        profile_bt_data_prof[profile_bt_size_cur++].jlvalue = (jl_value_t*)jl_atomic_load_relaxed(&ptls2->current_task);
+        jl_pinned_ref_set(profile_bt_data_prof[profile_bt_size_cur++].jlvalue, (jl_value_t*)jl_atomic_load_relaxed(&ptls2->current_task));
 
         // store cpu cycle clock
         profile_bt_data_prof[profile_bt_size_cur++].uintptr = cycleclock();
