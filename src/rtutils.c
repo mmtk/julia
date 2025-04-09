@@ -395,7 +395,7 @@ void jl_push_excstack(jl_task_t *ct, jl_excstack_t **stack JL_REQUIRE_ROOTED_SLO
     memcpy(rawstack + s->top, bt_data, sizeof(jl_bt_element_t)*bt_size);
     s->top += bt_size + 2;
     rawstack[s->top-2].uintptr = bt_size;
-    rawstack[s->top-1].jlvalue = exception;
+    jl_pinned_ref_set(rawstack[s->top-1].jlvalue, exception);
 }
 
 // conversion -----------------------------------------------------------------

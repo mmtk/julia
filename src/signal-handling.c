@@ -264,7 +264,7 @@ collect_backtrace:
     profile_bt_data_prof[profile_bt_size_cur++].uintptr = (uintptr_t)r.tid + 1;
 
     // store task id (never null)
-    profile_bt_data_prof[profile_bt_size_cur++].jlvalue = (jl_value_t*)t;
+    jl_pinned_ref_set(profile_bt_data_prof[profile_bt_size_cur++].jlvalue, (jl_value_t*)t);
 
     // store cpu cycle clock
     profile_bt_data_prof[profile_bt_size_cur++].uintptr = cycleclock();
