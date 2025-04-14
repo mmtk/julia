@@ -7184,7 +7184,7 @@ static jl_cgval_t emit_abi_call(jl_codectx_t &ctx, jl_value_t *declrt, jl_value_
                 cw->setAttributes(getcaller->getAttributes());
                 return cw;
             });
-        ctx.emission_context.cfuncs.push_back({declrt, sigt, nargs, specsig, theFptr, cfuncdata});
+        ctx.emission_context.cfuncs.push_back({jl_pinned_ref_create(jl_value_t, declrt), jl_pinned_ref_create(jl_value_t, sigt), nargs, specsig, theFptr, cfuncdata});
         if (specsig) {
             // TODO: could we force this to guarantee passing a box for `f` here (since we
             // know we had it here) and on the receiver end (emit_abi_converter /
