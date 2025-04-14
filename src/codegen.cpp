@@ -1908,7 +1908,7 @@ public:
     std::map<int, std::pair<Value*, Value*> > scope_restore;
     SmallVector<jl_cgval_t, 0> SAvalues;
     // The vector holds reference to Julia obj ref. We need to pin jl_value_t*.
-    SmallVector<std::tuple<jl_cgval_t, BasicBlock *, AllocaInst *, PHINode *, SmallVector<PHINode*,0>, jl_value_t *>, 0> PhiNodes;
+    SmallVector<std::tuple<jl_cgval_t, BasicBlock *, AllocaInst *, PHINode *, SmallVector<PHINode*,0>, jl_pinned_ref(jl_value_t)>, 0> PhiNodes;
     SmallVector<bool, 0> ssavalue_assigned;
     SmallVector<int, 0> ssavalue_usecount;
     jl_module_t *module = NULL;
@@ -1916,9 +1916,9 @@ public:
     jl_tbaacache_t tbaa_cache;
     jl_noaliascache_t aliasscope_cache;
     jl_method_instance_t *linfo = NULL;
-    jl_value_t *rettype = NULL;
-    jl_code_info_t *source = NULL;
-    jl_array_t *code = NULL;
+    jl_pinned_ref(jl_value_t) rettype = jl_pinned_ref_assume(jl_value_t, NULL);
+    jl_pinned_ref(jl_code_info_t) source = jl_pinned_ref_assume(jl_code_info_t, NULL);
+    jl_pinned_ref(jl_array_t) code = jl_pinned_ref_assume(jl_array_t, NULL);
     size_t min_world = 0;
     size_t max_world = -1;
     const char *name = NULL;
@@ -2409,7 +2409,7 @@ static jl_cgval_t convert_julia_type(jl_codectx_t &ctx, const jl_cgval_t &v, jl_
 
 static jl_sym_t *slot_symbol(jl_codectx_t &ctx, int s)
 {
-    return (jl_sym_t*)jl_array_ptr_ref(ctx.source->slotnames, s);
+    return (jl_sym_t*)jl_array_ptr_ref(jl_pinned_ref_get(ctx.source)->slotnames, s);
 }
 
 static void store_def_flag(jl_codectx_t &ctx, const jl_varinfo_t &vi, bool val)
@@ -5263,17 +5263,17 @@ static jl_cgval_t emit_invoke(jl_codectx_t &ctx, const jl_cgval_t &lival, ArrayR
             FunctionType *ft = f->getFunctionType();
             if (ft == ctx.types().T_jlfunc) {
                 Value *ret = emit_jlcall(ctx, f, nullptr, argv, nargs, julia_call);
-                result = update_julia_type(ctx, mark_julia_type(ctx, ret, true, ctx.rettype), rt);
+                result = update_julia_type(ctx, mark_julia_type(ctx, ret, true, jl_pinned_ref_get(ctx.rettype)), rt);
             }
             else if (ft == ctx.types().T_jlfuncparams) {
                 Value *ret = emit_jlcall(ctx, f, ctx.spvals_ptr, argv, nargs, julia_call2);
-                result = update_julia_type(ctx, mark_julia_type(ctx, ret, true, ctx.rettype), rt);
+                result = update_julia_type(ctx, mark_julia_type(ctx, ret, true, jl_pinned_ref_get(ctx.rettype)), rt);
             }
             else {
                 unsigned return_roots = 0;
                 jl_returninfo_t::CallingConv cc = jl_returninfo_t::CallingConv::Boxed;
                 StringRef protoname = f->getName();
-                result = emit_call_specfun_other(ctx, mi, ctx.rettype, protoname, nullptr, argv, nargs, &cc, &return_roots, rt);
+                result = emit_call_specfun_other(ctx, mi, jl_pinned_ref_get(ctx.rettype), protoname, nullptr, argv, nargs, &cc, &return_roots, rt);
             }
             handled = true;
         }
@@ -5751,7 +5751,7 @@ static void emit_vi_assignment_unboxed(jl_codectx_t &ctx, jl_varinfo_t &vi, Valu
 
 static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
 {
-    jl_value_t *ssavalue_types = (jl_value_t*)ctx.source->ssavaluetypes;
+    jl_value_t *ssavalue_types = (jl_value_t*)jl_pinned_ref_get(ctx.source)->ssavaluetypes;
     jl_value_t *phiType = NULL;
     if (jl_is_array(ssavalue_types)) {
         phiType = jl_array_ptr_ref(ssavalue_types, idx);
@@ -5793,8 +5793,8 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
                 decay_derived(ctx, phi));
             jl_cgval_t val = mark_julia_slot(ptr, phiType, Tindex_phi, best_tbaa(ctx.tbaa(), phiType));
             val.Vboxed = ptr_phi;
-            OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
-            ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, ptr_phi, roots, r));
+            // OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
+            ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, ptr_phi, roots, jl_pinned_ref_create(jl_value_t, r)));
             ctx.SAvalues[idx] = val;
             ctx.ssavalue_assigned[idx] = true;
             return;
@@ -5803,8 +5803,8 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
             PHINode *Tindex_phi = PHINode::Create(getInt8Ty(ctx.builder.getContext()), jl_array_nrows(edges), "tindex_phi");
             Tindex_phi->insertInto(BB, InsertPt);
             jl_cgval_t val = mark_julia_slot(NULL, phiType, Tindex_phi, ctx.tbaa().tbaa_stack);
-            OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
-            ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, (PHINode*)nullptr, roots, r));
+            // OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
+            ctx.PhiNodes.push_back(std::make_tuple(val, BB, dest, (PHINode*)nullptr, roots, jl_pinned_ref_create(jl_value_t, r)));
             ctx.SAvalues[idx] = val;
             ctx.ssavalue_assigned[idx] = true;
             return;
@@ -5854,8 +5854,8 @@ static void emit_phinode_assign(jl_codectx_t &ctx, ssize_t idx, jl_value_t *r)
         value_phi->insertInto(BB, InsertPt);
         slot = mark_julia_type(ctx, value_phi, isboxed, phiType);
     }
-    OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
-    ctx.PhiNodes.push_back(std::make_tuple(slot, BB, dest, value_phi, roots, r));
+    // OBJ_PIN(r); // r will be saved to a data structure in the native heap, make sure it won't be moved by GC.
+    ctx.PhiNodes.push_back(std::make_tuple(slot, BB, dest, value_phi, roots, jl_pinned_ref_create(jl_value_t, r)));
     ctx.SAvalues[idx] = slot;
     ctx.ssavalue_assigned[idx] = true;
     return;
@@ -5882,7 +5882,7 @@ static void emit_ssaval_assign(jl_codectx_t &ctx, ssize_t ssaidx_0based, jl_valu
     if (slot.isboxed || slot.TIndex) {
         // see if inference suggested a different type for the ssavalue than the expression
         // e.g. sometimes the information is inconsistent after inlining getfield on a Tuple
-        jl_value_t *ssavalue_types = (jl_value_t*)ctx.source->ssavaluetypes;
+        jl_value_t *ssavalue_types = (jl_value_t*)jl_pinned_ref_get(ctx.source)->ssavaluetypes;
         if (jl_is_array(ssavalue_types)) {
             jl_value_t *declType = jl_array_ptr_ref(ssavalue_types, ssaidx_0based);
             if (declType != slot.typ) {
@@ -6371,14 +6371,14 @@ static jl_cgval_t emit_expr(jl_codectx_t &ctx, jl_value_t *expr, ssize_t ssaidx_
     }
     else if (head == jl_invoke_sym) {
         assert(ssaidx_0based >= 0);
-        jl_value_t *expr_t = jl_is_long(ctx.source->ssavaluetypes) ? (jl_value_t*)jl_any_type :
-            jl_array_ptr_ref(ctx.source->ssavaluetypes, ssaidx_0based);
+        jl_value_t *expr_t = jl_is_long(jl_pinned_ref_get(ctx.source)->ssavaluetypes) ? (jl_value_t*)jl_any_type :
+            jl_array_ptr_ref(jl_pinned_ref_get(ctx.source)->ssavaluetypes, ssaidx_0based);
         return emit_invoke(ctx, ex, expr_t);
     }
     else if (head == jl_invoke_modify_sym) {
         assert(ssaidx_0based >= 0);
-        jl_value_t *expr_t = jl_is_long(ctx.source->ssavaluetypes) ? (jl_value_t*)jl_any_type :
-            jl_array_ptr_ref(ctx.source->ssavaluetypes, ssaidx_0based);
+        jl_value_t *expr_t = jl_is_long(jl_pinned_ref_get(ctx.source)->ssavaluetypes) ? (jl_value_t*)jl_any_type :
+            jl_array_ptr_ref(jl_pinned_ref_get(ctx.source)->ssavaluetypes, ssaidx_0based);
         return emit_invoke_modify(ctx, ex, expr_t);
     }
     else if (head == jl_call_sym) {
@@ -6388,7 +6388,7 @@ static jl_cgval_t emit_expr(jl_codectx_t &ctx, jl_value_t *expr, ssize_t ssaidx_
             // TODO: this case is needed for the call to emit_expr in emit_llvmcall
             expr_t = (jl_value_t*)jl_any_type;
         else {
-            expr_t = jl_is_long(ctx.source->ssavaluetypes) ? (jl_value_t*)jl_any_type : jl_array_ptr_ref(ctx.source->ssavaluetypes, ssaidx_0based);
+            expr_t = jl_is_long(jl_pinned_ref_get(ctx.source)->ssavaluetypes) ? (jl_value_t*)jl_any_type : jl_array_ptr_ref(jl_pinned_ref_get(ctx.source)->ssavaluetypes, ssaidx_0based);
             is_promotable = ctx.ssavalue_usecount[ssaidx_0based] == 1;
         }
         jl_cgval_t res = emit_call(ctx, ex, expr_t, is_promotable);
@@ -7004,7 +7004,7 @@ static void emit_fptr1_wrapper(Module *M, StringRef gf_thunk_name, Value *target
 
     jl_codectx_t ctx(M->getContext(), params, 0, 0);
     ctx.f = w;
-    ctx.rettype = declrt;
+    ctx.rettype = jl_pinned_ref_create(jl_value_t, declrt);
 
     BasicBlock *b0 = BasicBlock::Create(ctx.builder.getContext(), "top", w);
     ctx.builder.SetInsertPoint(b0);
@@ -7776,7 +7776,7 @@ static void gen_invoke_wrapper(jl_method_instance_t *lam, jl_value_t *abi, jl_va
     jl_codectx_t ctx(M->getContext(), params, 0, 0);
     ctx.f = w;
     ctx.linfo = lam;
-    ctx.rettype = jlretty;
+    ctx.rettype = jl_pinned_ref_create(jl_value_t, jlretty);
 
     BasicBlock *b0 = BasicBlock::Create(ctx.builder.getContext(), "top", w);
     ctx.builder.SetInsertPoint(b0);
@@ -8083,8 +8083,8 @@ static jl_llvm_functions_t
     jl_codectx_t ctx(*params.tsctx.getContext(), params, min_world, max_world);
     jl_datatype_t *vatyp = NULL;
     JL_GC_PUSH2(&ctx.code, &vatyp);
-    ctx.code = src->code;
-    ctx.source = src;
+    ctx.code = jl_pinned_ref_create(jl_array_t, src->code);
+    ctx.source = jl_pinned_ref_create(jl_code_info_t, src);
 
     ctx.module = jl_is_method(lam->def.method) ? lam->def.method->module : lam->def.module;
     ctx.linfo = lam;
@@ -8105,10 +8105,10 @@ static jl_llvm_functions_t
         if (vn != jl_unused_sym)
             ctx.vaSlot = ctx.nargs - 1;
     }
-    ctx.rettype = jlrettype;
+    ctx.rettype = jl_pinned_ref_create(jl_value_t, jlrettype);
     ctx.funcName = ctx.name;
     ctx.spvals_ptr = NULL;
-    jl_array_t *stmts = ctx.code;
+    jl_array_t *stmts = jl_pinned_ref_get(jl_pinned_ref_create(jl_array_t, ctx.code));
     size_t stmtslen = jl_array_dim0(stmts);
 
     // step 1b. unpack debug information
@@ -9376,14 +9376,14 @@ static jl_llvm_functions_t
     for (auto &tup : ctx.PhiNodes) {
         jl_cgval_t phi_result;
         PHINode *VN;
-        jl_value_t *r;
+        jl_pinned_ref(jl_value_t) r = jl_pinned_ref_assume(jl_value_t, NULL);
         AllocaInst *dest;
         SmallVector<PHINode*,0> roots;
         BasicBlock *PhiBB;
         std::tie(phi_result, PhiBB, dest, VN, roots, r) = tup;
         jl_value_t *phiType = phi_result.typ;
-        jl_array_t *edges = (jl_array_t*)jl_fieldref_noalloc(r, 0);
-        jl_array_t *values = (jl_array_t*)jl_fieldref_noalloc(r, 1);
+        jl_array_t *edges = (jl_array_t*)jl_fieldref_noalloc(jl_pinned_ref_get(r), 0);
+        jl_array_t *values = (jl_array_t*)jl_fieldref_noalloc(jl_pinned_ref_get(r), 1);
         PHINode *TindexN = cast_or_null<PHINode>(phi_result.TIndex);
         DenseSet<BasicBlock*> preds;
         for (size_t i = 0; i < jl_array_nrows(edges); ++i) {

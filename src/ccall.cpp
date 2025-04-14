@@ -734,15 +734,15 @@ static jl_cgval_t emit_llvmcall(jl_codectx_t &ctx, jl_value_t **args, size_t nar
     jl_value_t *ir_arg = args[1];
     JL_GC_PUSH4(&ir, &rt, &at, &entry);
     if (jl_is_ssavalue(ir_arg))
-        ir_arg = jl_array_ptr_ref((jl_array_t*)ctx.source->code, ((jl_ssavalue_t*)ir_arg)->id - 1);
+        ir_arg = jl_array_ptr_ref((jl_array_t*)(jl_pinned_ref_get(ctx.source)->code), ((jl_ssavalue_t*)ir_arg)->id - 1);
     ir = static_eval(ctx, ir_arg);
     if (!ir) {
         emit_error(ctx, "error statically evaluating llvm IR argument");
         JL_GC_POP();
         return jl_cgval_t();
     }
-    if (jl_is_ssavalue(args[2]) && !jl_is_long(ctx.source->ssavaluetypes)) {
-        jl_value_t *rtt = jl_array_ptr_ref((jl_array_t*)ctx.source->ssavaluetypes, ((jl_ssavalue_t*)args[2])->id - 1);
+    if (jl_is_ssavalue(args[2]) && !jl_is_long(jl_pinned_ref_get(ctx.source)->ssavaluetypes)) {
+        jl_value_t *rtt = jl_array_ptr_ref((jl_array_t*)jl_pinned_ref_get(ctx.source)->ssavaluetypes, ((jl_ssavalue_t*)args[2])->id - 1);
         if (jl_is_type_type(rtt))
             rt = jl_tparam0(rtt);
     }
@@ -754,8 +754,8 @@ static jl_cgval_t emit_llvmcall(jl_codectx_t &ctx, jl_value_t **args, size_t nar
             return jl_cgval_t();
         }
     }
-    if (jl_is_ssavalue(args[3]) && !jl_is_long(ctx.source->ssavaluetypes)) {
-        jl_value_t *att = jl_array_ptr_ref((jl_array_t*)ctx.source->ssavaluetypes, ((jl_ssavalue_t*)args[3])->id - 1);
+    if (jl_is_ssavalue(args[3]) && !jl_is_long(jl_pinned_ref_get(ctx.source)->ssavaluetypes)) {
+        jl_value_t *att = jl_array_ptr_ref((jl_array_t*)jl_pinned_ref_get(ctx.source)->ssavaluetypes, ((jl_ssavalue_t*)args[3])->id - 1);
         if (jl_is_type_type(att))
             at = jl_tparam0(att);
     }
