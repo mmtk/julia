@@ -214,8 +214,8 @@ struct jl_codegen_call_target_t {
 
 // reification of a call to jl_jit_abi_convert, so that it isn't necessary to parse the Modules to recover this info
 struct cfunc_decl_t {
-    jl_value_t *declrt;
-    jl_value_t *sigt;
+    jl_pinned_ref(jl_value_t) declrt;
+    jl_pinned_ref(jl_value_t) sigt;
     size_t nargs;
     bool specsig;
     llvm::GlobalVariable *theFptr;

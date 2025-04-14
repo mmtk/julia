@@ -547,9 +547,9 @@ static void generate_cfunc_thunks(jl_codegen_params_t &params, jl_compiled_funct
     size_t latestworld = jl_atomic_load_acquire(&jl_world_counter);
     for (cfunc_decl_t &cfunc : params.cfuncs) {
         Module *M = cfunc.theFptr->getParent();
-        jl_value_t *sigt = cfunc.sigt;
+        jl_value_t *sigt = jl_pinned_ref_get(cfunc.sigt);
         JL_GC_PROMISE_ROOTED(sigt);
-        jl_value_t *declrt = cfunc.declrt;
+        jl_value_t *declrt = jl_pinned_ref_get(cfunc.declrt);
         JL_GC_PROMISE_ROOTED(declrt);
         Function *unspec = aot_abi_converter(params, M, declrt, sigt, cfunc.nargs, cfunc.specsig, nullptr, nullptr, "", "", false);
         jl_code_instance_t *codeinst = nullptr;
@@ -2368,7 +2368,7 @@ void jl_get_llvmf_defn_impl(jl_llvmf_dump_t *dump, jl_method_instance_t *mi, jl_
             jl_compiled_functions_t compiled_functions;
             size_t latestworld = jl_atomic_load_acquire(&jl_world_counter);
             for (cfunc_decl_t &cfunc : output.cfuncs) {
-                jl_value_t *sigt = cfunc.sigt;
+                jl_value_t *sigt = jl_pinned_ref_get(cfunc.sigt);
                 JL_GC_PROMISE_ROOTED(sigt);
                 jl_method_instance_t *mi = jl_get_specialization1((jl_tupletype_t*)sigt, latestworld, 0);
                 if (mi == nullptr)
