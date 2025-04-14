@@ -115,6 +115,7 @@ template<typename T>
 class pinned_ref {
     T* ptr;
 public:
+    explicit pinned_ref() : ptr(static_cast<T*>(assume(NULL))) {}
     explicit pinned_ref(void* p) : ptr(static_cast<T*>(p)) {}
     operator void*() const { return ptr; }
     T* get() const { return ptr; }
