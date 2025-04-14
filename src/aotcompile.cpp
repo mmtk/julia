@@ -73,7 +73,7 @@ typedef struct {
     SmallVector<GlobalValue*, 0> jl_sysimg_gvars;
     std::map<jl_code_instance_t*, std::tuple<uint32_t, uint32_t>> jl_fvar_map;
     // This holds references to the heap. Need to be pinned.
-    SmallVector<void*, 0> jl_value_to_llvm;
+    SmallVector<jl_pinned_ref(void), 0> jl_value_to_llvm;
     SmallVector<jl_code_instance_t*, 0> jl_external_to_llvm;
 } jl_native_code_desc_t;
 
@@ -857,7 +857,7 @@ void *jl_emit_native_impl(jl_array_t *codeinfos, LLVMOrcThreadSafeModuleRef llvm
         gvars[idx] = global.second->getName().str();
         assert(gvars_set.insert(global.second).second && "Duplicate gvar in params!");
         assert(gvars_names.insert(gvars[idx]).second && "Duplicate gvar name in params!");
-        data->jl_value_to_llvm[idx] = global.first;
+        data->jl_value_to_llvm[idx] = jl_pinned_ref_assume(void, global.first);
         idx++;
     }
     CreateNativeMethods += compiled_functions.size();
