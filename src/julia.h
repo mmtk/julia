@@ -1237,8 +1237,6 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
 #define JL_GC_DECODE_NROOTS(n)     (n >> 2)
-<<<<<<< HEAD
-=======
 
 #define JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)  JL_GC_ENCODE_PUSHARGS(n)
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
@@ -1272,7 +1270,6 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)       ((((size_t)(n))<<3)|5)
 #endif
 #endif
->>>>>>> b4d216cfeb (Support moving)
 
 #ifdef __clang_gcanalyzer__
 
