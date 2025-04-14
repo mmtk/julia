@@ -392,8 +392,8 @@ static inline void memassign_safe(int hasptr, char *dst, const jl_value_t *src, 
 
 // data structures for runtime codegen
 typedef struct _jl_abi_t {
-    jl_value_t *sigt;
-    jl_value_t *rt;
+    jl_pinned_ref(jl_value_t) sigt;
+    jl_pinned_ref(jl_value_t) rt;
     size_t nargs;
     int specsig; // bool
     // OpaqueClosure Methods override the first argument of their signature
