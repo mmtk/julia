@@ -18,7 +18,7 @@ struct ReservationInfo {
 
 struct InferKey {
     jl_method_instance_t *mi = nullptr;
-    jl_value_t *owner = nullptr;
+    jl_pinned_ref(jl_value_t) owner = jl_pinned_ref_assume(jl_value_t, nullptr);
 };
 
 template<> struct llvm::DenseMapInfo<InferKey> {
@@ -27,17 +27,17 @@ template<> struct llvm::DenseMapInfo<InferKey> {
 
   static inline InferKey getEmptyKey() {
     return InferKey{FirstInfo::getEmptyKey(),
-                    SecondInfo::getEmptyKey()};
+                    jl_pinned_ref_create(jl_value_t, SecondInfo::getEmptyKey())};
   }
 
   static inline InferKey getTombstoneKey() {
     return InferKey{FirstInfo::getTombstoneKey(),
-                    SecondInfo::getTombstoneKey()};
+                    jl_pinned_ref_create(jl_value_t, SecondInfo::getTombstoneKey())};
   }
 
   static unsigned getHashValue(const InferKey& PairVal) {
     return detail::combineHashValue(FirstInfo::getHashValue(PairVal.mi),
-                                    SecondInfo::getHashValue(PairVal.owner));
+                                    SecondInfo::getHashValue(jl_pinned_ref_get(PairVal.owner)));
   }
 
   static bool isEqual(const InferKey &LHS, const InferKey &RHS) {
@@ -66,7 +66,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
     auto tid = jl_atomic_load_relaxed(&ct->tid);
     if (([tid, m, owner, ci] () -> bool { // necessary scope block / lambda for unique_lock
             jl_unique_gcsafe_lock lock(engine_lock);
-            InferKey key{m, owner};
+            InferKey key{m, jl_pinned_ref_create(jl_value_t, owner)};
             if ((signed)Awaiting.size() < tid + 1)
                 Awaiting.resize(tid + 1);
             while (1) {
@@ -106,7 +106,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
 int jl_engine_hasreserved(jl_method_instance_t *m, jl_value_t *owner)
 {
     jl_task_t *ct = jl_current_task;
-    InferKey key = {m, owner};
+    InferKey key = {m, jl_pinned_ref_create(jl_value_t, owner)};
     std::unique_lock lock(engine_lock);
     auto record = Reservations.find(key);
     return record != Reservations.end() && record->second.tid == jl_atomic_load_relaxed(&ct->tid);
@@ -139,7 +139,7 @@ void jl_engine_fulfill(jl_code_instance_t *ci, jl_code_info_t *src)
 {
     jl_task_t *ct = jl_current_task;
     std::unique_lock lock(engine_lock);
-    auto record = Reservations.find(InferKey{jl_get_ci_mi(ci), ci->owner});
+    auto record = Reservations.find(InferKey{jl_get_ci_mi(ci), jl_pinned_ref_create(jl_value_t, ci->owner)});
     if (record == Reservations.end() || record->second.ci != ci)
         return;
     assert(jl_atomic_load_relaxed(&ct->tid) == record->second.tid);
