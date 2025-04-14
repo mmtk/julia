@@ -484,10 +484,10 @@ static const std::string make_errmsg(const char *fname, int n, const char *err)
 
 static jl_cgval_t typeassert_input(jl_codectx_t &ctx, const jl_cgval_t &jvinfo, jl_value_t *jlto, jl_unionall_t *jlto_env, int argn)
 {
-    if (jlto != (jl_value_t*)jl_any_type && !jl_subtype(jvinfo.typ, jlto)) {
+    if (jlto != (jl_value_t*)jl_any_type && !jl_subtype(jl_pinned_ref_get(jvinfo.typ), jlto)) {
         if (jlto == (jl_value_t*)jl_voidpointer_type) {
             // allow a bit more flexibility for what can be passed to (void*) due to Ref{T} conversion behavior in input
-            if (!jl_is_cpointer_type(jvinfo.typ)) {
+            if (!jl_is_cpointer_type(jl_pinned_ref_get(jvinfo.typ))) {
                 // emit a typecheck, if not statically known to be correct
                 emit_cpointercheck(ctx, jvinfo, make_errmsg("ccall", argn + 1, ""));
                 return update_julia_type(ctx, jvinfo, (jl_value_t*)jl_pointer_type);
@@ -596,7 +596,7 @@ static void interpret_symbol_arg(jl_codectx_t &ctx, native_sym_arg_t &out, jl_va
             }
         }
         jl_cgval_t arg1 = emit_expr(ctx, arg);
-        jl_value_t *ptr_ty = arg1.typ;
+        jl_value_t *ptr_ty = jl_pinned_ref_get(arg1.typ);
         if (!jl_is_cpointer_type(ptr_ty)) {
             if (!ccall)
                 return;
@@ -2016,9 +2016,9 @@ jl_cgval_t function_sig_t::emit_a_ccall(
 
         Value *v;
         if (jl_is_abstract_ref_type(jargty)) {
-            if (!jl_is_cpointer_type(arg.typ)) {
+            if (!jl_is_cpointer_type(jl_pinned_ref_get(arg.typ))) {
                 emit_cpointercheck(ctx, arg, "ccall: argument to Ref{T} is not a pointer");
-                arg.typ = (jl_value_t*)jl_voidpointer_type;
+                arg.typ = jl_pinned_ref_create(jl_value_t, (jl_value_t*)jl_voidpointer_type);
                 arg.isboxed = false;
             }
             jargty_in_env = (jl_value_t*)jl_voidpointer_type;
