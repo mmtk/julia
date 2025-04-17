@@ -412,8 +412,12 @@ static void jl_rebuild_methtables(arraylist_t* MIs, htable_t* mtables)
         if ((jl_value_t *)old_mt == jl_nothing)
             continue;
         jl_sym_t *name = old_mt->name;
-        if (!ptrhash_has(mtables, old_mt))
-            ptrhash_put(mtables, old_mt, jl_new_method_table(name, m->module));
+        if (!ptrhash_has(mtables, old_mt)) {
+            jl_methtable_t *new_mt = jl_new_method_table(name, m->module);
+            OBJHASH_PIN(old_mt)
+            OBJHASH_PIN(new_mt)
+            ptrhash_put(mtables, old_mt, new_mt);
+        }
         jl_methtable_t *mt = (jl_methtable_t*)ptrhash_get(mtables, old_mt);
         size_t world =  jl_atomic_load_acquire(&jl_world_counter);
         jl_value_t * lookup = jl_methtable_lookup(mt, m->sig, world);

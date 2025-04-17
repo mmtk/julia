@@ -27,12 +27,12 @@ template<> struct llvm::DenseMapInfo<InferKey> {
 
   static inline InferKey getEmptyKey() {
     return InferKey{FirstInfo::getEmptyKey(),
-                    jl_pinned_ref_create(jl_value_t, SecondInfo::getEmptyKey())};
+                    jl_pinned_ref_assume(jl_value_t, SecondInfo::getEmptyKey())};
   }
 
   static inline InferKey getTombstoneKey() {
     return InferKey{FirstInfo::getTombstoneKey(),
-                    jl_pinned_ref_create(jl_value_t, SecondInfo::getTombstoneKey())};
+                    jl_pinned_ref_assume(jl_value_t, SecondInfo::getTombstoneKey())};
   }
 
   static unsigned getHashValue(const InferKey& PairVal) {
