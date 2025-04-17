@@ -21,6 +21,8 @@ extern "C" {
 extern jl_value_t *cmpswap_names JL_GLOBALLY_ROOTED;
 extern const unsigned pool_sizes[];
 extern jl_mutex_t finalizers_lock;
+extern jl_task_t *wait_empty JL_GLOBALLY_ROOTED;
+extern _Atomic(jl_function_t*) init_task_lock_func JL_GLOBALLY_ROOTED;
 
 // FIXME: Should the values below be shared between both GC's?
 // Note that MMTk uses a hard max heap limit, which is set by default
@@ -562,6 +564,9 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
         jl_typemap_entry_t *v = jl_atomic_load_relaxed(&call_cache[i]);
         TRACE_GLOBALLY_ROOTED(v);
     }
+
+    TRACE_GLOBALLY_ROOTED(wait_empty);
+
     TRACE_GLOBALLY_ROOTED(jl_precompile_toplevel_module);
     TRACE_GLOBALLY_ROOTED(jl_global_roots_list);
     TRACE_GLOBALLY_ROOTED(jl_global_roots_keyset);
@@ -628,7 +633,9 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     TRACE_GLOBALLY_ROOTED(jl_fielderror_type);
     TRACE_GLOBALLY_ROOTED(jl_atomicerror_type);
     TRACE_GLOBALLY_ROOTED(jl_missingcodeerror_type);
+    TRACE_GLOBALLY_ROOTED(jl_trimfailure_type);
     TRACE_GLOBALLY_ROOTED(jl_lineinfonode_type);
+    TRACE_GLOBALLY_ROOTED(jl_abioverride_type);
     TRACE_GLOBALLY_ROOTED(jl_stackovf_exception);
     TRACE_GLOBALLY_ROOTED(jl_memory_exception);
     TRACE_GLOBALLY_ROOTED(jl_readonlymemory_exception);
@@ -654,6 +661,7 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     TRACE_GLOBALLY_ROOTED(jl_float16_type);
     TRACE_GLOBALLY_ROOTED(jl_float32_type);
     TRACE_GLOBALLY_ROOTED(jl_float64_type);
+    TRACE_GLOBALLY_ROOTED(jl_bfloat16_type);
     TRACE_GLOBALLY_ROOTED(jl_floatingpoint_type);
     TRACE_GLOBALLY_ROOTED(jl_number_type);
     TRACE_GLOBALLY_ROOTED(jl_void_type);  // deprecated
@@ -726,6 +734,7 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     TRACE_GLOBALLY_ROOTED(task_done_hook_func);
     // threading.c
     // TRACE_GLOBALLY_ROOTED(jl_all_tls_states); -- we don't need to pin these. Julia TLS are allocated with calloc.
+    TRACE_GLOBALLY_ROOTED(init_task_lock_func);
 }
 
 // These are from gc_mark_roots -- this is not enough for a moving GC. We need to make sure
@@ -771,21 +780,30 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
     trace_full_globally_rooted(closure, &buf, &len);
 
     // Simply pin things in global roots table
-    // size_t i;
-    // for (i = 0; i < jl_array_len(jl_global_roots_table); i++) {
-    //     jl_value_t* root = jl_array_ptr_ref(jl_global_roots_table, i);
-    //     add_node_to_roots_buffer(closure, &buf, &len, root);
-    // }
-    // for (i = 0; i < jl_global_roots_list->length; i++) {
-    //     jl_value_t* root = jl_genericmemory_ptr_ref(jl_global_roots_list, i);
-    //     add_node_to_roots_buffer(closure, &buf, &len, root);
-    // }
-    // for (i = 0; i < jl_global_roots_keyset->length; i++) {
-    //     jl_value_t* root = jl_genericmemory_ptr_ref(jl_global_roots_keyset, i);
-    //     add_node_to_roots_buffer(closure, &buf, &len, root);
-    // }
-    // add_node_to_roots_buffer(closure, &buf, &len, jl_global_roots_list);
-    // add_node_to_roots_buffer(closure, &buf, &len, jl_global_roots_keyset);
+    size_t i;
+    for (i = 0; i < jl_global_roots_list->length; i++) {
+        jl_value_t* root = jl_genericmemory_ptr_ref(jl_global_roots_list, i);
+        add_node_to_roots_buffer(closure, &buf, &len, root);
+    }
+
+    if (precompile_field_replace) {
+        jl_array_t *vals = (jl_array_t*)jl_svecref(precompile_field_replace, 0);
+        jl_array_t *fields = (jl_array_t*)jl_svecref(precompile_field_replace, 1);
+        jl_array_t *newvals = (jl_array_t*)jl_svecref(precompile_field_replace, 2);
+        add_node_to_roots_buffer(closure, &buf, &len, vals);
+        add_node_to_roots_buffer(closure, &buf, &len, fields);
+        add_node_to_roots_buffer(closure, &buf, &len, newvals);
+
+        size_t l = jl_array_nrows(vals);
+        for (i = 0; i < l; i++) {
+            jl_value_t *val = jl_array_ptr_ref(vals, i);
+            jl_value_t *field = jl_array_ptr_ref(fields, i);
+            jl_value_t *newval = jl_array_ptr_ref(newvals, i);
+            add_node_to_roots_buffer(closure, &buf, &len, val);
+            add_node_to_roots_buffer(closure, &buf, &len, field);
+            add_node_to_roots_buffer(closure, &buf, &len, newval);
+        }
+    }
 
     // // add module
     // add_node_to_roots_buffer(closure, &buf, &len, jl_main_module);
@@ -816,8 +834,6 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
     size_t tpinned_len = 0;
     add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_list);
     add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_keyset);
-    // FIXME: transivitely pinning for now, should be removed after we add moving Immix
-    add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, precompile_field_replace);
     // Push the result of the work.
     (closure->report_nodes_func)(buf.ptr, len, buf.cap, closure->data, false);
     (closure->report_tpinned_nodes_func)(tpinned_buf.ptr, tpinned_len, tpinned_buf.cap, closure->data, false);
