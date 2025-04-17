@@ -1,10 +1,11 @@
 ## MMTK ##
 
 # Both MMTK_MOVING and MMTK_PLAN should be specified in the Make.user file.
-# At this point, since we only support non-moving this is always set to 0
-# FIXME: change it to `?:` when introducing moving plans
-MMTK_MOVING := 0
-MMTK_VARS := MMTK_PLAN=$(MMTK_PLAN) MMTK_MOVING=$(MMTK_MOVING)
+# FIXME: By default we do a non-moving build. We should change the default to 1
+# once we support moving plans.
+MMTK_MOVING ?= 0
+MMTK_MOVING_STRESS ?= 0
+MMTK_VARS := MMTK_PLAN=$(MMTK_PLAN) MMTK_MOVING=$(MMTK_MOVING) MMTK_MOVING_STRESS=$(MMTK_MOVING_STRESS)
 
 ifneq ($(USE_BINARYBUILDER_MMTK_JULIA),1)
 $(eval $(call git-external,mmtk_julia,MMTK_JULIA,,,$(BUILDDIR)))
