@@ -47,6 +47,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_alloc_genericmemory_unchecked(jl_ptls_t ptls
     else {
         int isaligned = 1; // jl_gc_managed_malloc is always aligned
         jl_gc_track_malloced_genericmemory(ptls, m, isaligned);
+        OBJ_PIN(m);
         jl_genericmemory_data_owner_field(m) = (jl_value_t*)m;
     }
     // length set by codegen

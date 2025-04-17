@@ -2676,12 +2676,16 @@ static void jl_prune_module_bindings(jl_module_t * m) JL_GC_DISABLED
     void *idx = ptrhash_get(&serialization_order, bindings);
     assert(idx != HT_NOTFOUND && idx != (void*)(uintptr_t)-1);
     assert(serialization_queue.items[(char*)idx - 1 - (char*)HT_NOTFOUND] == bindings);
+    OBJHASH_PIN(bindings2)
+    OBJHASH_PIN(idx)
     ptrhash_put(&serialization_order, bindings2, idx);
     serialization_queue.items[(char*)idx - 1 - (char*)HT_NOTFOUND] = bindings2;
 
     idx = ptrhash_get(&serialization_order, bindingkeyset);
     assert(idx != HT_NOTFOUND && idx != (void*)(uintptr_t)-1);
     assert(serialization_queue.items[(char*)idx - 1 - (char*)HT_NOTFOUND] == bindingkeyset);
+    OBJHASH_PIN(jl_atomic_load_relaxed(&bindingkeyset2))
+    OBJHASH_PIN(idx)
     ptrhash_put(&serialization_order, jl_atomic_load_relaxed(&bindingkeyset2), idx);
     serialization_queue.items[(char*)idx - 1 - (char*)HT_NOTFOUND] = jl_atomic_load_relaxed(&bindingkeyset2);
     jl_atomic_store_relaxed(&m->bindings, bindings2);
@@ -3087,6 +3091,8 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
             }
             else if (jl_field_size(st, field) > 0) {
                 // replace the bits
+                OBJHASH_PIN(fldaddr)
+                OBJHASH_PIN(newval)
                 ptrhash_put(&bits_replace, (void*)fldaddr, newval);
                 // and any pointers inside
                 jl_datatype_t *rty = (jl_datatype_t*)jl_typeof(newval);
@@ -3125,8 +3131,9 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
     htable_new(&symbol_table, 0);
     htable_new(&fptr_to_id, jl_n_builtins);
     uintptr_t i;
-    for (i = 0; i < jl_n_builtins; i++) {
-        ptrhash_put(&fptr_to_id, (void*)(uintptr_t)jl_builtin_f_addrs[i], (void*)(i + 2));
+    for (i = 0; id_to_fptrs[i] != NULL; i++) {
+        PTRHASH_PIN(id_to_fptrs[i])
+        ptrhash_put(&fptr_to_id, (void*)(uintptr_t)id_to_fptrs[i], (void*)(i + 2));
     }
     htable_new(&serialization_order, 25000);
     htable_new(&nullptrs, 0);
