@@ -405,7 +405,7 @@ jl_ptls_t jl_init_threadtls(int16_t tid)
     return ptls;
 }
 
-static _Atomic(jl_function_t*) init_task_lock_func JL_GLOBALLY_ROOTED = NULL;
+_Atomic(jl_function_t*) init_task_lock_func JL_GLOBALLY_ROOTED = NULL;
 
 static void jl_init_task_lock(jl_task_t *ct)
 {
