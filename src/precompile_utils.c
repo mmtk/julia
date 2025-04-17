@@ -425,8 +425,12 @@ static void jl_rebuild_methtables(arraylist_t *MIs, htable_t *mtables) JL_GC_DIS
         jl_methtable_t *old_mt = jl_method_get_table(m);
         if ((jl_value_t *)old_mt == jl_nothing)
             continue;
-        if (!ptrhash_has(mtables, old_mt))
-            ptrhash_put(mtables, old_mt, jl_new_method_table(old_mt->name, old_mt->module));
+        if (!ptrhash_has(mtables, old_mt)){
+            jl_methtable_t *new_mt = jl_new_method_table(old_mt->name, old_mt->module);
+            OBJHASH_PIN(old_mt)
+            OBJHASH_PIN(new_mt)
+            ptrhash_put(mtables, old_mt, new_mt);
+        }
         jl_methtable_t *mt = (jl_methtable_t*)ptrhash_get(mtables, old_mt);
         //TODO: should this be a function like unsafe_insert_method, since all that is wanted is the jl_typemap_insert on a copy of the existing entry
         size_t min_world = jl_atomic_load_relaxed(&m->primary_world);
