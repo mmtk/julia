@@ -780,7 +780,7 @@ void jl_profile_thread_mach(int tid)
         profile_bt_data_prof[profile_bt_size_cur++].uintptr = ptls->tid + 1;
 
         // store task id (never null)
-        profile_bt_data_prof[profile_bt_size_cur++].jlvalue = (jl_value_t*)jl_atomic_load_relaxed(&ptls->current_task);
+        jl_pinned_ref_set(profile_bt_data_prof[profile_bt_size_cur++].jlvalue, (jl_value_t*)jl_atomic_load_relaxed(&ptls->current_task));
 
         // store cpu cycle clock
         profile_bt_data_prof[profile_bt_size_cur++].uintptr = cycleclock();

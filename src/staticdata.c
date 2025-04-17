@@ -3085,6 +3085,8 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
             }
             else if (jl_field_size(st, field) > 0) {
                 // replace the bits
+                OBJHASH_PIN(fldaddr)
+                OBJHASH_PIN(newval)
                 ptrhash_put(&bits_replace, (void*)fldaddr, newval);
                 // and any pointers inside
                 jl_datatype_t *rty = (jl_datatype_t*)jl_typeof(newval);
@@ -3124,6 +3126,7 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
     htable_new(&fptr_to_id, jl_n_builtins);
     uintptr_t i;
     for (i = 0; i < jl_n_builtins; i++) {
+        PTRHASH_PIN(jl_builtin_f_addrs[i])
         ptrhash_put(&fptr_to_id, (void*)(uintptr_t)jl_builtin_f_addrs[i], (void*)(i + 2));
     }
     htable_new(&serialization_order, 25000);
