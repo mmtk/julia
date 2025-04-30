@@ -514,19 +514,6 @@ static void add_node_to_roots_buffer(RootsWorkClosure* closure, RootsWorkBuffer*
     }
 }
 
-static void add_node_to_tpinned_roots_buffer(RootsWorkClosure* closure, RootsWorkBuffer* buf, size_t* buf_len, void* root) {
-    if (root == NULL)
-        return;
-
-    buf->ptr[*buf_len] = root;
-    *buf_len += 1;
-    if (*buf_len >= buf->cap) {
-        RootsWorkBuffer new_buf = (closure->report_tpinned_nodes_func)(buf->ptr, *buf_len, buf->cap, closure->data, true);
-        *buf = new_buf;
-        *buf_len = 0;
-    }
-}
-
 // staticdata_utils.c
 extern jl_array_t *internal_methods;
 extern jl_array_t *newly_inferred;
@@ -828,15 +815,8 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
     // add_node_to_roots_buffer(closure, &buf, &len, cmpswap_names);
     // add_node_to_roots_buffer(closure, &buf, &len, precompile_field_replace);
 
-    // jl_global_roots_table must be transitively pinned
-    // FIXME: We need to remove transitive pinning of global roots. Otherwise they may pin most of the objects in the heap.
-    RootsWorkBuffer tpinned_buf = (closure->report_tpinned_nodes_func)((void**)0, 0, 0, closure->data, true);
-    size_t tpinned_len = 0;
-    add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_list);
-    add_node_to_tpinned_roots_buffer(closure, &tpinned_buf, &tpinned_len, jl_global_roots_keyset);
     // Push the result of the work.
     (closure->report_nodes_func)(buf.ptr, len, buf.cap, closure->data, false);
-    (closure->report_tpinned_nodes_func)(tpinned_buf.ptr, tpinned_len, tpinned_buf.cap, closure->data, false);
 }
 
 JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, ProcessSlotFn process_slot) {
@@ -1090,6 +1070,7 @@ JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref_th(jl_ptls_t ptls, jl_value_t *valu
 {
     jl_weakref_t *wr = (jl_weakref_t*)jl_gc_alloc(ptls, sizeof(void*), jl_weakref_type);
     wr->value = value;  // NOTE: wb not needed here
+    OBJ_PIN(wr)
     // Note: we are using MMTk's weak ref processing. If we switch to Julia's weak ref processing,
     // we need to make sure the value and the weak ref won't be moved (e.g. pin them)
     mmtk_add_weak_candidate(wr);
