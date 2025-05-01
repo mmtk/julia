@@ -115,6 +115,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_string_to_genericmemory(jl_value_t *str)
     m->ptr = jl_string_data(str);
     jl_genericmemory_data_owner_field(m) = str;
     OBJ_PIN(str);
+    OBJ_PIN(m); // FIXME: without this pin, make test-Tar fail with stress copying
     return m;
 }
 
