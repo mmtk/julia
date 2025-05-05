@@ -1241,6 +1241,8 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSHARGS(n)   JL_GC_ENCODE_PUSHARGS_NO_TPIN(n)
 #define JL_GC_ENCODE_PUSH(n)       JL_GC_ENCODE_PUSH_NO_TPIN(n)
 
+#define JL_GC_ENCODE_PUSHARGS_TPIN(n)      (((size_t)(n))<<3)
+
 #endif
 #endif
 
