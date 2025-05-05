@@ -1533,7 +1533,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_internal_obj_base_ptr(void *p)
 
 #define JL_GC_PUSHARGS_PRESERVE_ROOT_OBJS(rts_var,n)                                                    \
   rts_var = ((jl_value_t**)malloc(((n)+2)*sizeof(jl_value_t*)))+2;                                      \
-  ((void**)rts_var)[-2] = (void*)JL_GC_ENCODE_PUSHARGS(n);                                              \
+  ((void**)rts_var)[-2] = (void*)JL_GC_ENCODE_PUSHARGS_TPIN(n);                                         \
   ((void**)rts_var)[-1] = jl_p_gcpreserve_stack;                                                        \
   memset((void*)rts_var, 0, (n)*sizeof(jl_value_t*));                                                   \
   jl_p_gcpreserve_stack = (jl_gcframe_t*)&(((void**)rts_var)[-2]);                                      \
