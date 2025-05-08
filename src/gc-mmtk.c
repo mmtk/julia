@@ -1095,6 +1095,7 @@ JL_DLLEXPORT int* jl_gc_get_have_pending_finalizers(void) {
 // ========================================================================= //
 
 #define MMTK_DEFAULT_IMMIX_ALLOCATOR (0)
+#define MMTK_NONMOVING_ALLOCATOR (1)
 #define MMTK_IMMORTAL_BUMP_ALLOCATOR (0)
 
 int jl_gc_classify_pools(size_t sz, int *osize)
@@ -1149,6 +1150,17 @@ STATIC_INLINE void mmtk_immix_post_alloc_fast(MMTkMutatorContext* mutator, void*
     }
 }
 
+STATIC_INLINE void* mmtk_nonmoving_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
+    ImmixAllocator* allocator = &mutator->allocators.immix[MMTK_NONMOVING_ALLOCATOR];
+    return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (intptr_t)allocator->limit, size, align, offset, 6);
+}
+
+STATIC_INLINE void mmtk_nonmoving_post_alloc_fast(MMTkMutatorContext* mutator, void* obj, size_t size) {
+    if (MMTK_NEEDS_VO_BIT) {
+        mmtk_set_side_metadata(MMTK_SIDE_VO_BIT_BASE_ADDRESS, obj);
+    }
+}
+
 STATIC_INLINE void* mmtk_immortal_alloc_fast(MMTkMutatorContext* mutator, size_t size, size_t align, size_t offset) {
     BumpAllocator* allocator = &mutator->allocators.bump_pointer[MMTK_IMMORTAL_BUMP_ALLOCATOR];
     return bump_alloc_fast(mutator, (uintptr_t*)&allocator->cursor, (uintptr_t)allocator->limit, size, align, offset, 1);
@@ -1178,6 +1190,32 @@ JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_default(jl_ptls_t ptls, int osize, siz
         v = jl_valueof(v_tagged_aligned);
         mmtk_store_obj_size_c(v, LLT_ALIGN(osize+sizeof(jl_taggedvalue_t), align));
         mmtk_immix_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, v, LLT_ALIGN(osize+sizeof(jl_taggedvalue_t), align));
+    }
+
+    ptls->gc_tls_common.gc_num.allocd += osize;
+    ptls->gc_tls_common.gc_num.poolalloc++;
+
+    return v;
+}
+
+JL_DLLEXPORT jl_value_t *jl_mmtk_gc_alloc_nonmoving(jl_ptls_t ptls, int osize, size_t align, void *ty)
+{
+    // safepoint
+    jl_gc_safepoint_(ptls);
+
+    jl_value_t *v;
+    if ((uintptr_t)ty != jl_buff_tag) {
+        // v needs to be 16 byte aligned, therefore v_tagged needs to be offset accordingly to consider the size of header
+        jl_taggedvalue_t *v_tagged = (jl_taggedvalue_t *)mmtk_nonmoving_alloc_fast(&ptls->gc_tls.mmtk_mutator, LLT_ALIGN(osize, align), align, sizeof(jl_taggedvalue_t));
+        v = jl_valueof(v_tagged);
+        mmtk_nonmoving_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, v, LLT_ALIGN(osize, align));
+    } else {
+        // allocating an extra word to store the size of buffer objects
+        jl_taggedvalue_t *v_tagged = (jl_taggedvalue_t *)mmtk_nonmoving_alloc_fast(&ptls->gc_tls.mmtk_mutator, LLT_ALIGN(osize+sizeof(jl_taggedvalue_t), align), align, 0);
+        jl_value_t* v_tagged_aligned = ((jl_value_t*)((char*)(v_tagged) + sizeof(jl_taggedvalue_t)));
+        v = jl_valueof(v_tagged_aligned);
+        mmtk_store_obj_size_c(v, LLT_ALIGN(osize+sizeof(jl_taggedvalue_t), align));
+        mmtk_nonmoving_post_alloc_fast(&ptls->gc_tls.mmtk_mutator, v, LLT_ALIGN(osize+sizeof(jl_taggedvalue_t), align));
     }
 
     ptls->gc_tls_common.gc_num.allocd += osize;
@@ -1258,10 +1296,18 @@ inline jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
 
 inline jl_value_t *jl_gc_alloc_nonmoving_(jl_ptls_t ptls, size_t sz, void *ty)
 {
-    // TODO: Currently we just alloc and pin the object. We may use a
-    // different non moving allocator instead.
-    jl_value_t *v = jl_gc_alloc_(ptls, sz, ty);
-    OBJ_PIN(v);
+    jl_value_t *v;
+    const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
+    if (sz <= GC_MAX_SZCLASS) {
+        v = jl_mmtk_gc_alloc_nonmoving(ptls, allocsz, 16, ty);
+    }
+    else {
+        if (allocsz < sz) // overflow in adding offs, size was "negative"
+            jl_throw(jl_memory_exception);
+        v = jl_mmtk_gc_alloc_big(ptls, allocsz);
+    }
+    jl_set_typeof(v, ty);
+    maybe_record_alloc_to_profile(v, sz, (jl_datatype_t*)ty);
     return v;
 }
 
