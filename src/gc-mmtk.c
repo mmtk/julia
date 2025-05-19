@@ -240,6 +240,7 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection) {
         return;
     }
     mmtk_handle_user_collection_request(ptls, collection);
+    // print_fragmentation();
 }
 
 
@@ -330,6 +331,7 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
     SetLastError(last_error);
 #endif
     errno = last_errno;
+    // print_fragmentation();
 }
 
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
@@ -1064,9 +1066,8 @@ JL_DLLEXPORT size_t jl_gc_genericmemory_how(void *arg) JL_NOTSAFEPOINT
 
 JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref_th(jl_ptls_t ptls, jl_value_t *value)
 {
-    jl_weakref_t *wr = (jl_weakref_t*)jl_gc_alloc(ptls, sizeof(void*), jl_weakref_type);
+    jl_weakref_t *wr = (jl_weakref_t*)jl_gc_alloc_nonmoving(ptls, sizeof(void*), jl_weakref_type);
     wr->value = value;  // NOTE: wb not needed here
-    OBJ_PIN(wr)
     // Note: we are using MMTk's weak ref processing. If we switch to Julia's weak ref processing,
     // we need to make sure the value and the weak ref won't be moved (e.g. pin them)
     mmtk_add_weak_candidate(wr);
