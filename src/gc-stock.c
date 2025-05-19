@@ -3506,6 +3506,12 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection)
     SetLastError(last_error);
 #endif
     errno = last_errno;
+
+    int64_t pool_live_bytes = jl_gc_pool_live_bytes();
+    int64_t pool_bytes_in_pages = jl_atomic_load_relaxed(&gc_heap_stats.bytes_resident);
+    jl_safe_printf("Utilization in pool allocator: %f, %lld live bytes and %lld bytes in pages\n",
+                   (double)pool_live_bytes / (double)pool_bytes_in_pages,
+                   (long long)pool_live_bytes, (long long)pool_bytes_in_pages);
 }
 
 void gc_mark_queue_all_roots(jl_ptls_t ptls, jl_gc_markqueue_t *mq)
