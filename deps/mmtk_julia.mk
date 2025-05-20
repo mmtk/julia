@@ -1,11 +1,13 @@
 ## MMTK ##
 
 # Both MMTK_MOVING and MMTK_PLAN should be specified in the Make.user file.
-# FIXME: By default we do a non-moving build. We should change the default to 1
-# once we support moving plans.
+# Whether to move objects at all (standard immix)
 MMTK_MOVING ?= 0
-MMTK_MOVING_STRESS ?= 0
-MMTK_VARS := MMTK_PLAN=$(MMTK_PLAN) MMTK_MOVING=$(MMTK_MOVING) MMTK_MOVING_STRESS=$(MMTK_MOVING_STRESS)
+# Every GC becomes a defrag GC
+MMTK_ALWAYS_MOVING ?= 0
+# Copies every object when possible
+MMTK_MAX_MOVING ?= 0
+MMTK_VARS := MMTK_PLAN=$(MMTK_PLAN) MMTK_MOVING=$(MMTK_MOVING) MMTK_ALWAYS_MOVING=$(MMTK_ALWAYS_MOVING) MMTK_MAX_MOVING=$(MMTK_MAX_MOVING)
 
 ifneq ($(USE_BINARYBUILDER_MMTK_JULIA),1)
 $(eval $(call git-external,mmtk_julia,MMTK_JULIA,,,$(BUILDDIR)))
