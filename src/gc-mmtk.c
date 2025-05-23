@@ -881,6 +881,8 @@ static void jl_gc_free_memory(jl_genericmemory_t *m, int isaligned) JL_NOTSAFEPO
     gc_num.freecall++;
 }
 
+extern void* mmtk_get_possibly_forwarded(void* object);
+
 JL_DLLEXPORT void jl_gc_mmtk_sweep_malloced_memory(void) JL_NOTSAFEPOINT
 {
     void* iter = mmtk_new_mutator_iterator();
@@ -893,6 +895,11 @@ JL_DLLEXPORT void jl_gc_mmtk_sweep_malloced_memory(void) JL_NOTSAFEPOINT
         while (n < l) {
             jl_genericmemory_t *m = (jl_genericmemory_t*)((uintptr_t)lst[n] & ~1);
             if (mmtk_is_live_object(m)) {
+                jl_genericmemory_t *maybe_forwarded = (jl_genericmemory_t*)mmtk_get_possibly_forwarded(m);
+                if(maybe_forwarded != m) {
+                    int isaligned = (uintptr_t)lst[n] & 1;
+                    lst[n] = (void*)((uintptr_t)maybe_forwarded | !!isaligned);
+                }
                 n++;
             }
             else {
@@ -928,6 +935,11 @@ JL_DLLEXPORT void jl_gc_update_inlined_array(void* from, void* to) {
             if (offset_of_data > 0) {
                 b->ptr = (void*)((size_t) b + offset_of_data);
             }
+        }
+
+        // make sure we update the owner pointer when we're copying the generic memory
+        if (how == 1) {
+            jl_genericmemory_data_owner_field(b) = (jl_value_t*)b;
         }
     }
 }
