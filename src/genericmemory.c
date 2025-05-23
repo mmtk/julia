@@ -38,7 +38,7 @@ JL_DLLEXPORT jl_genericmemory_t *jl_alloc_genericmemory_unchecked(jl_ptls_t ptls
         data = (char*)jl_gc_managed_malloc(nbytes);
         tot = sizeof(jl_genericmemory_t) + sizeof(void*);
     }
-    m = (jl_genericmemory_t*)jl_gc_alloc_nonmoving(ptls, tot, mtype);
+    m = (jl_genericmemory_t*)jl_gc_alloc(ptls, tot, mtype);
     if (pooled) {
         data = (char*)m + JL_SMALL_BYTE_ALIGNMENT;
     }

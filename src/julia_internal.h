@@ -609,8 +609,6 @@ typedef void jl_gc_tracked_buffer_t; // For the benefit of the static analyzer
 STATIC_INLINE jl_gc_tracked_buffer_t *jl_gc_alloc_buf(jl_ptls_t ptls, size_t sz)
 {
     jl_gc_tracked_buffer_t *buf = jl_gc_alloc_nonmoving(ptls, sz, (void*)jl_buff_tag);
-    // FIXME: we might not need to pin buffers since the introduction of jl_genericmemory_t objects
-    // but removing the pin below will currently fail an assertion in the binding
     return buf;
 }
 
