@@ -1627,6 +1627,14 @@ JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT
     JL_GC_POP_PRESERVE_ROOT_OBJS();
 }
 
+JL_DLLEXPORT uintptr_t jl_gc_get_obj_hash(void* obj) JL_NOTSAFEPOINT {
+    return mmtk_get_object_hash(obj);
+}
+
+JL_DLLEXPORT uintptr_t jl_gc_get_ptr_hash(void* ptr) JL_NOTSAFEPOINT {
+    return mmtk_get_ptr_hash(ptr);
+}
+
 #ifdef __cplusplus
 }
 #endif

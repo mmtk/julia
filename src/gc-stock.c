@@ -4162,6 +4162,14 @@ JL_DLLEXPORT void jl_gc_notify_thread_yield(jl_ptls_t ptls, void* ctx) {
     // Do nothing before a thread yields
 }
 
+JL_DLLEXPORT uintptr_t jl_gc_get_obj_hash(void* obj) JL_NOTSAFEPOINT {
+    return (uintptr_t)obj;
+}
+
+JL_DLLEXPORT uintptr_t jl_gc_get_ptr_hash(void* ptr) JL_NOTSAFEPOINT {
+    return (uintptr_t)ptr;
+}
+
 #ifdef __cplusplus
 }
 #endif
