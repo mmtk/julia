@@ -123,6 +123,9 @@ JL_DLLEXPORT void jl_gc_preserve_begin_hook(int n, ...) JL_NOTSAFEPOINT;
 // Runtime hook for gc preserve end. The GC needs to make sure that the preserved objects and its children stay alive and won't move.
 JL_DLLEXPORT void jl_gc_preserve_end_hook(void) JL_NOTSAFEPOINT;
 
+JL_DLLEXPORT uintptr_t jl_gc_get_obj_hash(void* obj) JL_NOTSAFEPOINT;
+JL_DLLEXPORT uintptr_t jl_gc_get_ptr_hash(void* ptr) JL_NOTSAFEPOINT;
+
 // ========================================================================= //
 // Metrics
 // ========================================================================= //
