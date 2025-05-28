@@ -25,7 +25,8 @@ $(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)/build-compiled: $(BUILDROOT)/usr/lib/libmmtk_j
 
 # NB: use the absolute dir when creating the symlink
 $(BUILDROOT)/usr/lib/libmmtk_julia.so: $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so
-	@ln -sf $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so $@
+	echo "Copying MMTK Julia to $(BUILDROOT)/usr/lib/libmmtk_julia.so"
+	@cp $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so $@
 
 $(MMTK_JULIA_LIB_PATH)/libmmtk_julia.so: $(BUILDDIR)/$(MMTK_JULIA_SRC_DIR)/source-extracted
 	@$(PROJECT_DIRS) $(MMTK_VARS) $(MAKE) -C $(MMTK_JULIA_DIR) $(MMTK_BUILD)
@@ -52,7 +53,8 @@ compile-mmtk_julia: $(BUILDROOT)/usr/lib/libmmtk_julia.so
 version-check-mmtk_julia: $(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so
 
 $(BUILDROOT)/usr/lib/libmmtk_julia.so: make-binding
-	@ln -sf $(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so $@
+	echo "Copying MMTK Julia to $(BUILDROOT)/usr/lib/libmmtk_julia.so"
+	@cp $(MMTK_JULIA_DIR)/mmtk/target/$(MMTK_BUILD)/libmmtk_julia.so $@
 
 make-binding:
 	@$(PROJECT_DIRS) $(MMTK_VARS) $(MAKE) -C $(MMTK_JULIA_DIR) $(MMTK_BUILD)
