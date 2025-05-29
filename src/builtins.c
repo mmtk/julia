@@ -423,7 +423,8 @@ static uintptr_t immut_id_(jl_datatype_t *dt, jl_value_t *v, uintptr_t h) JL_NOT
         // a few select pointers (notably symbol) also have special hash values
         // which may affect the stability of the objectid hash, even though
         // they don't affect egal comparison
-        return bits_hash((const void*)jl_gc_get_ptr_hash(v), sz) ^ h;
+        // return bits_hash((const void*)jl_gc_get_ptr_hash(v), sz) ^ h;
+        return bits_hash(v, sz) ^ h;
     }
     if (dt == jl_unionall_type)
         return type_object_id_(v, NULL);
