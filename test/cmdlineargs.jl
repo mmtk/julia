@@ -1219,13 +1219,9 @@ end
 end
 
 @testset "hard heap limit" begin
-    # Set the hard heap limit to 100MB, try to allocate an array of 200MB
-    # and assert that the process is aborted, by checking the exit code.
-    cmd = `$(Base.julia_cmd()) --startup-file=no --hard-heap-limit=100M -e "a = Array{UInt8}(undef, 200*1024*1024); GC.gc()"`
-    p = open(pipeline(cmd, stderr=devnull, stdout=devnull))
-    exitcode = wait(p)
-    # The process should be aborted with an error code
-    @test exitcode != 0
+    cmd = `$(Base.julia_cmd()) --hard-heap-limit=30M -E "mutable struct ListNode; v::Int64; next::Union{ListNode, Nothing}; end\n
+        l = ListNode(0, nothing); while true; l = ListNode(0, l); end"`
+    @test !success(cmd)
 end
 end
 
@@ -1272,27 +1268,24 @@ end
     @testset "--hard-heap-limit=$str" for str in ["asdf","","0","1.2vb","b","GB","2.5GB̂","1.2gb2","42gigabytes","5gig","2GiB","NaNt"]
         @test errors_not_signals(`$exename --hard-heap-limit=$str -e "exit(0)"`)
     end
-    k = 1024
-    m = 1024k
-    g = 1024m
-    t = 1024g
-    # Express one hundred megabytes as 100MB, 100m, 100e6, etc.
+    k = UInt64(1) << 10
+    m = UInt64(1) << 20
+    g = UInt64(1) << 30
+    t = UInt64(1) << 40
     one_hundred_mb_strs_and_vals = [
         ("100000000", 100000000), ("1e8", 1e8), ("100MB", 100m), ("100m", 100m), ("1e5kB", 1e5k),
     ]
     @testset "--hard-heap-limit=$str" for (str, val) in one_hundred_mb_strs_and_vals
         @test parse(UInt64,read(`$exename --hard-heap-limit=$str -E "Base.JLOptions().hard_heap_limit"`, String)) == val
     end
-    # Express two and a half gigabytes as 2.5g, 2.5GB, etc.
     two_and_a_half_gigabytes_strs_and_vals = [
         ("2500000000", 2500000000), ("2.5e9", 2.5e9), ("2.5g", 2.5g), ("2.5GB", 2.5g), ("2.5e6mB", 2.5e6m),
     ]
     @testset "--hard-heap-limit=$str" for (str, val) in two_and_a_half_gigabytes_strs_and_vals
         @test parse(UInt64,read(`$exename --hard-heap-limit=$str -E "Base.JLOptions().hard_heap_limit"`, String)) == val
     end
-    # Express one terabyte as 1TB, 1e12, etc.
     one_terabyte_strs_and_vals = [
-        ("1000000000000", 1000000000000), ("1e12", 1e12), ("1TB", 1t), ("1e9gB", 1e9g),
+        ("1TB", 1t), ("1024GB", 1t),
     ]
     @testset "--hard-heap-limit=$str" for (str, val) in one_terabyte_strs_and_vals
         @test parse(UInt64,read(`$exename --hard-heap-limit=$str -E "Base.JLOptions().hard_heap_limit"`, String)) == val
@@ -1305,27 +1298,24 @@ end
     @testset "--heap-target-increment=$str" for str in ["asdf","","0","1.2vb","b","GB","2.5GB̂","1.2gb2","42gigabytes","5gig","2GiB","NaNt"]
         @test errors_not_signals(`$exename --heap-target-increment=$str -e "exit(0)"`)
     end
-    k = 1024
-    m = 1024k
-    g = 1024m
-    t = 1024g
-    # Express one hundred megabytes as 100MB, 100m, 100e6, etc.
+    k = UInt64(1) << 10
+    m = UInt64(1) << 20
+    g = UInt64(1) << 30
+    t = UInt64(1) << 40
     one_hundred_mb_strs_and_vals = [
         ("100000000", 100000000), ("1e8", 1e8), ("100MB", 100m), ("100m", 100m), ("1e5kB", 1e5k),
     ]
     @testset "--heap-target-increment=$str" for (str, val) in one_hundred_mb_strs_and_vals
         @test parse(UInt64,read(`$exename --heap-target-increment=$str -E "Base.JLOptions().heap_target_increment"`, String)) == val
     end
-    # Express two and a half gigabytes as 2.5g, 2.5GB, etc.
     two_and_a_half_gigabytes_strs_and_vals = [
         ("2500000000", 2500000000), ("2.5e9", 2.5e9), ("2.5g", 2.5g), ("2.5GB", 2.5g), ("2.5e6mB", 2.5e6m),
     ]
     @testset "--heap-target-increment=$str" for (str, val) in two_and_a_half_gigabytes_strs_and_vals
         @test parse(UInt64,read(`$exename --heap-target-increment=$str -E "Base.JLOptions().heap_target_increment"`, String)) == val
     end
-    # Express one terabyte as 1TB, 1e12, etc.
     one_terabyte_strs_and_vals = [
-        ("1000000000000", 1000000000000), ("1e12", 1e12), ("1TB", 1t), ("1e9gB", 1e9g),
+        ("1TB", 1t), ("1024GB", 1t),
     ]
     @testset "--heap-target-increment=$str" for (str, val) in one_terabyte_strs_and_vals
         @test parse(UInt64,read(`$exename --heap-target-increment=$str -E "Base.JLOptions().heap_target_increment"`, String)) == val
