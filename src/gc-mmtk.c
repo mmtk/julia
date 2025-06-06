@@ -59,6 +59,8 @@ extern void mmtk_post_alloc(void* mutator, void* refer, size_t bytes, int alloca
 extern void mmtk_store_obj_size_c(void* obj, size_t size);
 extern bool mmtk_is_pinned(void* obj);
 extern unsigned char mmtk_pin_object(void* obj);
+extern bool mmtk_is_reachable_object(void* obj);
+extern bool mmtk_is_live_object(void* obj);
 extern bool mmtk_is_object_pinned(void* obj);
 extern unsigned char mmtk_pin_pointer(void* ptr);
 extern bool mmtk_is_pointer_pinned(void* ptr);
@@ -72,6 +74,8 @@ extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
 void jl_gc_init(void) {
     // TODO: use jl_options.heap_size_hint to set MMTk's fixed heap size? (see issue: https://github.com/mmtk/mmtk-julia/issues/167)
     JL_MUTEX_INIT(&finalizers_lock, "finalizers_lock");
+
+    jl_set_check_alive_fn(mmtk_is_reachable_object);
 
     arraylist_new(&to_finalize, 0);
     arraylist_new(&finalizer_list_marked, 0);
@@ -341,6 +345,9 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
 #endif
     errno = last_errno;
     // print_fragmentation();
+#ifdef ENABLE_PINNING_LOGGING
+    jl_print_pinning_log();
+#endif
 }
 
 JL_DLLEXPORT unsigned char jl_gc_pin_object(void* obj) {
