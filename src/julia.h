@@ -20,6 +20,7 @@
 #include "libsupport.h"
 #include <stdint.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "htable.h"
 #include "arraylist.h"
@@ -91,59 +92,6 @@ typedef struct _jl_value_t jl_value_t;
 extern "C" {
 #endif
 
-// object pinning  ------------------------------------------------------------
-
-// FIXME: Pinning objects that get hashed in the ptrhash table
-// until we implement address space hashing.
-#define OBJHASH_PIN(key) if (key) jl_gc_pin_object(key);
-#define PTRHASH_PIN(key) if (key) jl_gc_pin_pointer(key);
-
-// Called when pinning objects that would cause an error if moved
-// The difference: the argument for pin_object needs to pointer to an object (jl_value_t*),
-// but the argument for pin_pointer can be an internal pointer.
-#define OBJ_PIN(key) if (key) jl_gc_pin_object(key);
-#define PTR_PIN(key) if (key) jl_gc_pin_pointer(key);
-
-#ifdef __cplusplus
-} // extern "C"
-#endif
-
-#ifdef __cplusplus
-
-// C++ template version
-template<typename T>
-class pinned_ref {
-    T* ptr;
-public:
-    explicit pinned_ref() : ptr(static_cast<T*>(assume(NULL))) {}
-    explicit pinned_ref(void* p) : ptr(static_cast<T*>(p)) {}
-    operator void*() const { return ptr; }
-    T* get() const { return ptr; }
-    static pinned_ref create(void* p) { OBJ_PIN(p); return pinned_ref(p); }
-    static pinned_ref assume(void* p) { return pinned_ref(p); }
-};
-
-// Redefine macros for C++ to use the template version
-#define jl_pinned_ref(T) pinned_ref<T>
-#define jl_pinned_ref_assume(T, ptr) pinned_ref<T>::assume(ptr)
-#define jl_pinned_ref_create(T, ptr) pinned_ref<T>::create(ptr)
-#define jl_pinned_ref_get(ref) (ref).get()
-
-#else
-
-// Primary type definition
-#define jl_pinned_ref(T) union { T* t; void* unused; }
-#define jl_pinned_ref_assume(T, ptr) ((jl_pinned_ref(T)){ .t = (ptr) })
-// Assignment macro
-#define jl_pinned_ref_set(lhs, ptr) OBJ_PIN(ptr); jl_pinned_ref_get(lhs) = ptr;
-// Getter macro
-#define jl_pinned_ref_get(ref) ((ref).t)
-
-#endif
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 // core data types ------------------------------------------------------------
 
 struct _jl_taggedvalue_bits {
@@ -1399,6 +1347,84 @@ STATIC_INLINE jl_value_t *jl_svecset(
 
 JL_DLLEXPORT JL_CONST_FUNC jl_gcframe_t **(jl_get_pgcstack)(void) JL_GLOBALLY_ROOTED JL_NOTSAFEPOINT;
 #define jl_current_task (container_of(jl_get_pgcstack(), jl_task_t, gcstack))
+
+// object pinning  ------------------------------------------------------------
+
+typedef bool (*check_alive_fn)(void *);
+JL_DLLEXPORT void jl_set_check_alive_fn(check_alive_fn fn);
+JL_DLLEXPORT void jl_log_pinning_event(void *pinned_object, const char *filename, int lineno);
+JL_DLLEXPORT void jl_print_pinning_log(void);
+
+#define ENABLE_PINNING_LOGGING
+#ifdef ENABLE_PINNING_LOGGING
+#define LOG_PINNING_EVENT(key) do { \
+    jl_log_pinning_event(key, __FILE__, __LINE__); \
+} while (0);
+#else
+#define LOG_PINNING_EVENT(key) ;
+#endif
+
+// FIXME: Pinning objects that get hashed in the ptrhash table
+// until we implement addrePTR_PINss space hashing.
+#define OBJHASH_PIN(key) do { \
+    if (key) { \
+        LOG_PINNING_EVENT(key); \
+        jl_gc_pin_object(key); \
+    } \
+} while (0);
+#define PTRHASH_PIN(key) if (key) jl_gc_pin_pointer(key);
+
+// Called when pinning objects that would cause an error if moved
+// The difference: the argument for pin_object needs to pointer to an object (jl_value_t*),
+// but the argument for pin_pointer can be an internal pointer.
+#define OBJ_PIN(key) do { \
+    if (key) { \
+        LOG_PINNING_EVENT(key); \
+        jl_gc_pin_object(key); \
+    } \
+} while (0);
+#define PTR_PIN(key) if (key) jl_gc_pin_pointer(key);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif
+
+#ifdef __cplusplus
+
+// C++ template version
+template<typename T>
+class pinned_ref {
+    T* ptr;
+public:
+    explicit pinned_ref() : ptr(static_cast<T*>(assume(NULL))) {}
+    explicit pinned_ref(void* p) : ptr(static_cast<T*>(p)) {}
+    operator void*() const { return ptr; }
+    T* get() const { return ptr; }
+    static pinned_ref create(void* p) { OBJ_PIN(p); return pinned_ref(p); }
+    static pinned_ref assume(void* p) { return pinned_ref(p); }
+};
+
+// Redefine macros for C++ to use the template version
+#define jl_pinned_ref(T) pinned_ref<T>
+#define jl_pinned_ref_assume(T, ptr) pinned_ref<T>::assume(ptr)
+#define jl_pinned_ref_create(T, ptr) pinned_ref<T>::create(ptr)
+#define jl_pinned_ref_get(ref) (ref).get()
+
+#else
+
+// Primary type definition
+#define jl_pinned_ref(T) union { T* t; void* unused; }
+#define jl_pinned_ref_assume(T, ptr) ((jl_pinned_ref(T)){ .t = (ptr) })
+// Assignment macro
+#define jl_pinned_ref_set(lhs, ptr) OBJ_PIN(ptr); jl_pinned_ref_get(lhs) = ptr;
+// Getter macro
+#define jl_pinned_ref_get(ref) ((ref).t)
+
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 STATIC_INLINE jl_value_t *jl_genericmemory_owner(jl_genericmemory_t *m JL_PROPAGATES_ROOT) JL_NOTSAFEPOINT;
 

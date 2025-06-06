@@ -48,7 +48,7 @@ FLAGS += -I$(LOCALBASE)/include
 endif
 
 # GC source code. It depends on which GC implementation to use.
-GC_SRCS := gc-common gc-stacks gc-alloc-profiler gc-heap-snapshot
+GC_SRCS := gc-common gc-stacks gc-alloc-profiler gc-heap-snapshot gc-pinning-log
 ifeq (${USE_THIRD_PARTY_GC},mmtk)
 GC_SRCS += gc-mmtk
 else
@@ -69,7 +69,7 @@ CG_LLVMLINK :=
 
 ifeq ($(JULIACODEGEN),LLVM)
 # Currently these files are used by both GCs. But we should make the list specific to stock, and MMTk should have its own implementation.
-GC_CODEGEN_SRCS := llvm-final-gc-lowering llvm-late-gc-lowering llvm-gc-invariant-verifier
+GC_CODEGEN_SRCS := llvm-final-gc-lowering llvm-late-gc-lowering llvm-gc-invariant-verifier gc-pinning-log
 ifeq (${USE_THIRD_PARTY_GC},mmtk)
 FLAGS += -I$(MMTK_API_INC)
 GC_CODEGEN_SRCS += llvm-late-gc-lowering-mmtk
