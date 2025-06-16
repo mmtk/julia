@@ -72,7 +72,7 @@ struct coalesced_pinning_log_t {
 struct pinning_log_t {
     linear_pinning_log_t linear_log;
     coalesced_pinning_log_t coalesced_log;
-    check_alive_fn is_alive;
+    check_alive_fn_type is_alive;
     std::mutex mu;
     pinning_log_entry_t *alloc_pinning_log_entry(void *pinned_object) {
         pinning_log_entry_t *e;
@@ -92,7 +92,7 @@ struct pinning_log_t {
         linear_log.reset_log_buffer();
         mu.unlock();
     }
-    void set_check_alive_fn(check_alive_fn fn) {
+    void set_check_alive_fn_type(check_alive_fn_type fn) {
         mu.lock();
         is_alive = fn;
         mu.unlock();
@@ -157,8 +157,8 @@ extern "C" {
 
 int pinning_log_enabled;
 
-JL_DLLEXPORT void jl_set_check_alive_fn(check_alive_fn fn) {
-    pinning_log.set_check_alive_fn(fn);
+JL_DLLEXPORT void jl_set_check_alive_type(check_alive_fn_type fn) {
+    pinning_log.set_check_alive_fn_type(fn);
 }
 JL_DLLEXPORT void jl_enable_pinning_log(void) {
     pinning_log_enabled = 1;
