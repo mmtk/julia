@@ -18,7 +18,7 @@ struct ReservationInfo {
 
 struct InferKey {
     jl_method_instance_t *mi = nullptr;
-    jl_value_t *owner = nullptr;
+    JL_ROOT jl_value_t *owner = nullptr;
 };
 
 template<> struct llvm::DenseMapInfo<InferKey> {
@@ -64,7 +64,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
     auto tid = jl_atomic_load_relaxed(&ct->tid);
     if (([tid, m, owner, ci] () -> bool { // necessary scope block / lambda for unique_lock
             jl_unique_gcsafe_lock lock(engine_lock);
-            arraylist_push(&objects_pinned_by_inference_engine, owner);
+            arraylist_push(&gc_pinned_objects, owner);
             InferKey key{m, owner};
             if ((signed)Awaiting.size() < tid + 1)
                 Awaiting.resize(tid + 1);
@@ -72,7 +72,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
                 auto record = Reservations.find(key);
                 if (record == Reservations.end()) {
                     Reservations[key] = ReservationInfo{tid, ci};
-                    arraylist_pop(&objects_pinned_by_inference_engine);
+                    arraylist_pop(&gc_pinned_objects);
                     return false;
                 }
                 // before waiting, need to run deadlock/cycle detection
@@ -81,7 +81,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
                 auto wait_tid = record->second.tid;
                 while (1) {
                     if (wait_tid == tid) {
-                        arraylist_pop(&objects_pinned_by_inference_engine);
+                        arraylist_pop(&gc_pinned_objects);
                         return true;
                     }
                     if ((signed)Awaiting.size() <= wait_tid)
@@ -99,7 +99,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
                 lock.wait(engine_wait);
                 Awaiting[tid] = InferKey{};
             }
-            arraylist_pop(&objects_pinned_by_inference_engine);
+            arraylist_pop(&gc_pinned_objects);
         })())
         ct->ptls->engine_nqueued--;
     JL_GC_POP();
