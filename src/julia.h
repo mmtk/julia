@@ -1346,7 +1346,7 @@ JL_DLLEXPORT JL_CONST_FUNC jl_gcframe_t **(jl_get_pgcstack)(void) JL_GLOBALLY_RO
 
 // object pinning  ------------------------------------------------------------
 
-extern arraylist_t objects_pinned_by_inference_engine;
+extern arraylist_t gc_pinned_objects;
 typedef bool (*check_alive_fn_type)(void *);
 JL_DLLEXPORT void jl_set_check_alive_type(check_alive_fn_type fn);
 JL_DLLEXPORT void jl_log_pinning_event(void *pinned_object, const char *filename, int lineno);

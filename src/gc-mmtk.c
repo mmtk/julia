@@ -74,7 +74,7 @@ void jl_gc_init(void) {
 
     jl_set_check_alive_type(mmtk_is_reachable_object);
 
-    arraylist_new(&objects_pinned_by_inference_engine, 0);
+    arraylist_new(&gc_pinned_objects, 0);
     arraylist_new(&to_finalize, 0);
     arraylist_new(&finalizer_list_marked, 0);
     gc_num.interval = default_collect_interval;
@@ -251,8 +251,8 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection) {
 
 void gc_pin_objects_from_inference_engine(arraylist_t *objects_pinned_by_call)
 {
-    for (size_t i = 0; i < objects_pinned_by_inference_engine.len; i++) {
-        void *obj = objects_pinned_by_inference_engine.items[i];
+    for (size_t i = 0; i < gc_pinned_objects.len; i++) {
+        void *obj = gc_pinned_objects.items[i];
         unsigned char got_pinned = mmtk_pin_object(obj);
         if (got_pinned) {
             arraylist_push(objects_pinned_by_call, obj);
