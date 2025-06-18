@@ -18,7 +18,7 @@ struct ReservationInfo {
 
 struct InferKey {
     jl_method_instance_t *mi = nullptr;
-    jl_pinned_ref(jl_value_t) owner = jl_pinned_ref_assume(jl_value_t, nullptr);
+    JL_ROOT jl_value_t *owner = nullptr;
 };
 
 template<> struct llvm::DenseMapInfo<InferKey> {
@@ -26,18 +26,16 @@ template<> struct llvm::DenseMapInfo<InferKey> {
   using SecondInfo = DenseMapInfo<jl_value_t*>;
 
   static inline InferKey getEmptyKey() {
-    return InferKey{FirstInfo::getEmptyKey(),
-                    jl_pinned_ref_assume(jl_value_t, SecondInfo::getEmptyKey())};
+    return InferKey{FirstInfo::getEmptyKey(), SecondInfo::getEmptyKey()};
   }
 
   static inline InferKey getTombstoneKey() {
-    return InferKey{FirstInfo::getTombstoneKey(),
-                    jl_pinned_ref_assume(jl_value_t, SecondInfo::getTombstoneKey())};
+    return InferKey{FirstInfo::getTombstoneKey(), SecondInfo::getTombstoneKey()};
   }
 
   static unsigned getHashValue(const InferKey& PairVal) {
     return detail::combineHashValue(FirstInfo::getHashValue(PairVal.mi),
-                                    SecondInfo::getHashValue(jl_pinned_ref_get(PairVal.owner)));
+                                    SecondInfo::getHashValue(PairVal.owner));
   }
 
   static bool isEqual(const InferKey &LHS, const InferKey &RHS) {
@@ -66,13 +64,15 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
     auto tid = jl_atomic_load_relaxed(&ct->tid);
     if (([tid, m, owner, ci] () -> bool { // necessary scope block / lambda for unique_lock
             jl_unique_gcsafe_lock lock(engine_lock);
-            InferKey key{m, jl_pinned_ref_create(jl_value_t, owner)};
+            arraylist_push(&gc_pinned_objects, owner);
+            InferKey key{m, owner};
             if ((signed)Awaiting.size() < tid + 1)
                 Awaiting.resize(tid + 1);
             while (1) {
                 auto record = Reservations.find(key);
                 if (record == Reservations.end()) {
                     Reservations[key] = ReservationInfo{tid, ci};
+                    arraylist_pop(&gc_pinned_objects);
                     return false;
                 }
                 // before waiting, need to run deadlock/cycle detection
@@ -80,8 +80,10 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
                 // and waiting for (transitively) any lease that is held by this thread
                 auto wait_tid = record->second.tid;
                 while (1) {
-                    if (wait_tid == tid)
+                    if (wait_tid == tid) {
+                        arraylist_pop(&gc_pinned_objects);
                         return true;
+                    }
                     if ((signed)Awaiting.size() <= wait_tid)
                         break; // no cycle, since it is running (and this should be unreachable)
                     auto key2 = Awaiting[wait_tid];
@@ -97,6 +99,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
                 lock.wait(engine_wait);
                 Awaiting[tid] = InferKey{};
             }
+            arraylist_pop(&gc_pinned_objects);
         })())
         ct->ptls->engine_nqueued--;
     JL_GC_POP();
@@ -106,7 +109,7 @@ jl_code_instance_t *jl_engine_reserve(jl_method_instance_t *m, jl_value_t *owner
 int jl_engine_hasreserved(jl_method_instance_t *m, jl_value_t *owner)
 {
     jl_task_t *ct = jl_current_task;
-    InferKey key = {m, jl_pinned_ref_create(jl_value_t, owner)};
+    InferKey key = {m, owner};
     std::unique_lock lock(engine_lock);
     auto record = Reservations.find(key);
     return record != Reservations.end() && record->second.tid == jl_atomic_load_relaxed(&ct->tid);
@@ -139,7 +142,7 @@ void jl_engine_fulfill(jl_code_instance_t *ci, jl_code_info_t *src)
 {
     jl_task_t *ct = jl_current_task;
     std::unique_lock lock(engine_lock);
-    auto record = Reservations.find(InferKey{jl_get_ci_mi(ci), jl_pinned_ref_create(jl_value_t, ci->owner)});
+    auto record = Reservations.find(InferKey{jl_get_ci_mi(ci), ci->owner});
     if (record == Reservations.end() || record->second.ci != ci)
         return;
     assert(jl_atomic_load_relaxed(&ct->tid) == record->second.tid);

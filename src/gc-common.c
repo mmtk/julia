@@ -687,6 +687,8 @@ JL_DLLEXPORT int jl_gc_enable(int on)
 // MISC
 // =========================================================================== //
 
+arraylist_t gc_pinned_objects;
+
 JL_DLLEXPORT jl_weakref_t *jl_gc_new_weakref(jl_value_t *value)
 {
     jl_ptls_t ptls = jl_current_task->ptls;
