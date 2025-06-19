@@ -2431,6 +2431,7 @@ JL_DLLEXPORT void jl_register_newmeth_tracer(void (*callback)(jl_method_t *trace
 
 // AST access
 JL_DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr JL_MAYBE_UNROOTED);
+extern arraylist_t jl_ast_ctx_used;
 
 // IR representation
 JL_DLLEXPORT jl_value_t *jl_compress_ir(jl_method_t *m, jl_code_info_t *code);
