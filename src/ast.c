@@ -802,7 +802,7 @@ static value_t julia_to_scm_(jl_ast_context_t *ctx, jl_value_t *v, int check_val
 {
     // The following code will take internal pointers to v's fields. We need to make sure
     // that v will not be moved by GC.
-    OBJ_PIN(v);
+    arraylist_push(&ctx->pinned_objects, v);
     value_t retval;
     fl_context_t *fl_ctx = &ctx->fl;
     if (julia_to_scm_noalloc1(fl_ctx, v, &retval))
