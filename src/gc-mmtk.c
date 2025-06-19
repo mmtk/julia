@@ -263,6 +263,17 @@ void gc_pin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)
             arraylist_push(objects_pinned_by_call, obj);
         }
     }
+    for (size_t i = 0; i < jl_ast_ctx_used.len; i++) {
+        void *ctx = jl_ast_ctx_used.items[i];
+        arraylist_t *pinned_objects = extract_pinned_objects_from_ast_ctx(ctx);
+        for (size_t j = 0; j < pinned_objects->len; j++) {
+            void *obj = pinned_objects->items[j];
+            unsigned char got_pinned = mmtk_pin_object(obj);
+            if (got_pinned) {
+                arraylist_push(objects_pinned_by_call, obj);
+            }
+        }
+    }
 }
 
 void gc_unpin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)

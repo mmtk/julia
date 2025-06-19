@@ -139,6 +139,17 @@ typedef struct _jl_ast_context_t {
     arraylist_t pinned_objects;
 } jl_ast_context_t;
 
+// FIXME: Ugly hack to get a pointer to the pinned objects
+arraylist_t *extract_pinned_objects_from_ast_ctx(void *ctx)
+{
+    // This is used to extract pinned objects from the context
+    // for the purpose of pinning them in MMTk.
+    if (ctx == NULL)
+        return NULL;
+    jl_ast_context_t *jl_ctx = (jl_ast_context_t*)ctx;
+    return &jl_ctx->pinned_objects;
+}
+
 static jl_ast_context_t jl_ast_main_ctx;
 
 #ifdef __clang_gcanalyzer__
