@@ -134,7 +134,7 @@ typedef struct _jl_ast_context_t {
     value_t ssavalue_sym;
     value_t slot_sym;
     jl_module_t *module; // context module for `current-julia-module-counter`
-    struct _jl_ast_context_t *next; // invasive list pointer for getting free contexts
+    arraylist_t pinned_objects;
 } jl_ast_context_t;
 
 static jl_ast_context_t jl_ast_main_ctx;
@@ -277,27 +277,29 @@ static void jl_init_ast_ctx(jl_ast_context_t *ctx) JL_NOTSAFEPOINT
     ctx->slot_sym = symbol(fl_ctx, "slot");
     ctx->module = NULL;
     set(symbol(fl_ctx, "*scopewarn-opt*"), fixnum(jl_options.warn_scope));
+    arraylist_new(&ctx->pinned_objects, 0);
 }
 
 // There should be no GC allocation while holding this lock
 static uv_mutex_t flisp_lock;
-static jl_ast_context_t *jl_ast_ctx_freed = NULL;
+int flisp_initialized = 0;
+arraylist_t jl_ast_ctx_freed;
+arraylist_t jl_ast_ctx_used;
 
 static jl_ast_context_t *jl_ast_ctx_enter(jl_module_t *m) JL_GLOBALLY_ROOTED JL_NOTSAFEPOINT
 {
     JL_SIGATOMIC_BEGIN();
     uv_mutex_lock(&flisp_lock);
-    jl_ast_context_t *ctx = jl_ast_ctx_freed;
-    if (ctx != NULL) {
-        jl_ast_ctx_freed = ctx->next;
-        ctx->next = NULL;
-    }
+    jl_ast_context_t *ctx = (jl_ast_context_t*)arraylist_pop(&jl_ast_ctx_freed);
     uv_mutex_unlock(&flisp_lock);
     if (ctx == NULL) {
         // Construct a new one if we can't find any
         ctx = (jl_ast_context_t*)calloc(1, sizeof(jl_ast_context_t));
         jl_init_ast_ctx(ctx);
     }
+    uv_mutex_lock(&flisp_lock);
+    arraylist_push(&jl_ast_ctx_used, ctx);
+    uv_mutex_unlock(&flisp_lock);
     ctx->module = m;
     return ctx;
 }
@@ -306,16 +308,20 @@ static void jl_ast_ctx_leave(jl_ast_context_t *ctx)
 {
     uv_mutex_lock(&flisp_lock);
     ctx->module = NULL;
-    ctx->next = jl_ast_ctx_freed;
-    jl_ast_ctx_freed = ctx;
+    ctx->pinned_objects.len = 0; // clear pinned objects
+    arraylist_pop(&jl_ast_ctx_used);
+    arraylist_push(&jl_ast_ctx_freed, ctx);
     uv_mutex_unlock(&flisp_lock);
     JL_SIGATOMIC_END();
 }
 
 void jl_init_flisp(void)
 {
-    if (jl_ast_ctx_freed)
+    if (flisp_initialized)
         return;
+    flisp_initialized = 1;
+    arraylist_new(&jl_ast_ctx_freed, 0);
+    arraylist_new(&jl_ast_ctx_used, 0);
     uv_mutex_init(&flisp_lock);
     jl_init_ast_ctx(&jl_ast_main_ctx);
     // To match the one in jl_ast_ctx_leave
