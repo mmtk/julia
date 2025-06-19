@@ -151,7 +151,7 @@ struct macroctx_stack {
 };
 
 static jl_value_t *scm_to_julia(fl_context_t *fl_ctx, value_t e, jl_module_t *mod);
-static value_t julia_to_scm(fl_context_t *fl_ctx, jl_value_t *v);
+static value_t julia_to_scm(jl_ast_context_t *ctx, jl_value_t *v);
 static jl_value_t *jl_expand_macros(jl_value_t *expr, jl_module_t *inmodule, struct macroctx_stack *macroctx, int onelevel, size_t world, int throw_load_error);
 
 static jl_sym_t *scmsym_to_julia(fl_context_t *fl_ctx, value_t s)
@@ -676,14 +676,15 @@ static jl_value_t *scm_to_julia_(fl_context_t *fl_ctx, value_t e, jl_module_t *m
     jl_error("malformed tree");
 }
 
-static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v, int check_valid);
+static value_t julia_to_scm_(jl_ast_context_t *ctx, jl_value_t *v, int check_valid);
 
-static value_t julia_to_scm(fl_context_t *fl_ctx, jl_value_t *v)
+static value_t julia_to_scm(jl_ast_context_t *ctx, jl_value_t *v)
 {
     value_t temp;
     // need try/catch to reset GC handle stack in case of error
+    fl_context_t *fl_ctx = &ctx->fl;
     FL_TRY_EXTERN(fl_ctx) {
-        temp = julia_to_scm_(fl_ctx, v, 1);
+        temp = julia_to_scm_(ctx, v, 1);
     }
     FL_CATCH_EXTERN(fl_ctx) {
         temp = fl_ctx->lasterror;
@@ -691,22 +692,24 @@ static value_t julia_to_scm(fl_context_t *fl_ctx, jl_value_t *v)
     return temp;
 }
 
-static void array_to_list(fl_context_t *fl_ctx, jl_array_t *a, value_t *pv, int check_valid)
+static void array_to_list(jl_ast_context_t *ctx, jl_array_t *a, value_t *pv, int check_valid)
 {
     value_t temp;
+    fl_context_t *fl_ctx = &ctx->fl;
     for (long i = jl_array_nrows(a) - 1; i >= 0; i--) {
         *pv = fl_cons(fl_ctx, fl_ctx->NIL, *pv);
-        temp = julia_to_scm_(fl_ctx, jl_array_ptr_ref(a, i), check_valid);
+        temp = julia_to_scm_(ctx, jl_array_ptr_ref(a, i), check_valid);
         // note: must be separate statement
         car_(*pv) = temp;
     }
 }
 
-static value_t julia_to_list2(fl_context_t *fl_ctx, jl_value_t *a, jl_value_t *b, int check_valid)
+static value_t julia_to_list2(jl_ast_context_t *ctx, jl_value_t *a, jl_value_t *b, int check_valid)
 {
-    value_t sa = julia_to_scm_(fl_ctx, a, check_valid);
+    fl_context_t *fl_ctx = &ctx->fl;
+    value_t sa = julia_to_scm_(ctx, a, check_valid);
     fl_gc_handle(fl_ctx, &sa);
-    value_t sb = julia_to_scm_(fl_ctx, b, check_valid);
+    value_t sb = julia_to_scm_(ctx, b, check_valid);
     value_t l = fl_list2(fl_ctx, sa, sb);
     fl_free_gc_handles(fl_ctx, 1);
     return l;
@@ -780,12 +783,13 @@ static value_t julia_to_list2_noalloc(fl_context_t *fl_ctx, jl_value_t *a, jl_va
     return l;
 }
 
-static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v, int check_valid)
+static value_t julia_to_scm_(jl_ast_context_t *ctx, jl_value_t *v, int check_valid)
 {
     // The following code will take internal pointers to v's fields. We need to make sure
     // that v will not be moved by GC.
     OBJ_PIN(v);
     value_t retval;
+    fl_context_t *fl_ctx = &ctx->fl;
     if (julia_to_scm_noalloc1(fl_ctx, v, &retval))
         return retval;
     if (jl_is_expr(v)) {
@@ -794,12 +798,12 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v, int check_vali
         fl_gc_handle(fl_ctx, &args);
         if (jl_expr_nargs(ex) > 520000 && ex->head != jl_block_sym)
             lerror(fl_ctx, symbol(fl_ctx, "error"), "expression too large");
-        array_to_list(fl_ctx, ex->args, &args, check_valid);
-        value_t hd = julia_to_scm_(fl_ctx, (jl_value_t*)ex->head, check_valid);
+        array_to_list(ctx, ex->args, &args, check_valid);
+        value_t hd = julia_to_scm_(ctx, (jl_value_t*)ex->head, check_valid);
         if (ex->head == jl_lambda_sym && jl_expr_nargs(ex)>0 && jl_is_array(jl_exprarg(ex,0))) {
             value_t llist = fl_ctx->NIL;
             fl_gc_handle(fl_ctx, &llist);
-            array_to_list(fl_ctx, (jl_array_t*)jl_exprarg(ex,0), &llist, check_valid);
+            array_to_list(ctx, (jl_array_t*)jl_exprarg(ex,0), &llist, check_valid);
             car_(args) = llist;
             fl_free_gc_handles(fl_ctx, 1);
         }
@@ -815,7 +819,7 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v, int check_vali
         jl_value_t *line = jl_fieldref(v,0);
         value_t args = julia_to_list2_noalloc(fl_ctx, line, file, check_valid);
         fl_gc_handle(fl_ctx, &args);
-        value_t hd = julia_to_scm_(fl_ctx, (jl_value_t*)jl_line_sym, check_valid);
+        value_t hd = julia_to_scm_(ctx, (jl_value_t*)jl_line_sym, check_valid);
         value_t scmv = fl_cons(fl_ctx, hd, args);
         fl_free_gc_handles(fl_ctx, 1);
         return scmv;
@@ -823,18 +827,18 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v, int check_vali
     if (jl_typetagis(v, jl_gotonode_type))
         return julia_to_list2_noalloc(fl_ctx, (jl_value_t*)jl_goto_sym, jl_fieldref(v,0), check_valid);
     if (jl_typetagis(v, jl_quotenode_type))
-        return julia_to_list2(fl_ctx, (jl_value_t*)jl_inert_sym, jl_fieldref_noalloc(v,0), 0);
+        return julia_to_list2(ctx, (jl_value_t*)jl_inert_sym, jl_fieldref_noalloc(v,0), 0);
     if (jl_typetagis(v, jl_newvarnode_type))
         return julia_to_list2_noalloc(fl_ctx, (jl_value_t*)jl_newvar_sym, jl_fieldref(v,0), check_valid);
     if (jl_typetagis(v, jl_globalref_type)) {
         jl_module_t *m = jl_globalref_mod(v);
         jl_sym_t *sym = jl_globalref_name(v);
         if (m == jl_core_module)
-            return julia_to_list2(fl_ctx, (jl_value_t*)jl_core_sym,
+            return julia_to_list2(ctx, (jl_value_t*)jl_core_sym,
                                   (jl_value_t*)sym, check_valid);
-        value_t args = julia_to_list2(fl_ctx, (jl_value_t*)m, (jl_value_t*)sym, check_valid);
+        value_t args = julia_to_list2(ctx, (jl_value_t*)m, (jl_value_t*)sym, check_valid);
         fl_gc_handle(fl_ctx, &args);
-        value_t hd = julia_to_scm_(fl_ctx, (jl_value_t*)jl_globalref_sym, check_valid);
+        value_t hd = julia_to_scm_(ctx, (jl_value_t*)jl_globalref_sym, check_valid);
         value_t scmv = fl_cons(fl_ctx, hd, args);
         fl_free_gc_handles(fl_ctx, 1);
         return scmv;
@@ -902,8 +906,8 @@ JL_DLLEXPORT jl_value_t *jl_fl_parse(const char *text, size_t text_len,
 static jl_value_t *jl_call_scm_on_ast(const char *funcname, jl_value_t *expr, jl_module_t *inmodule)
 {
     jl_ast_context_t *ctx = jl_ast_ctx_enter(inmodule);
+    value_t arg = julia_to_scm(ctx, expr);
     fl_context_t *fl_ctx = &ctx->fl;
-    value_t arg = julia_to_scm(fl_ctx, expr);
     value_t e = fl_applyn(fl_ctx, 1, symbol_value(symbol(fl_ctx, funcname)), arg);
     jl_value_t *result = scm_to_julia(fl_ctx, e, inmodule);
     JL_GC_PUSH1(&result);
@@ -916,8 +920,8 @@ jl_value_t *jl_call_scm_on_ast_and_loc(const char *funcname, jl_value_t *expr,
                                        jl_module_t *inmodule, const char *file, int line)
 {
     jl_ast_context_t *ctx = jl_ast_ctx_enter(inmodule);
+    value_t arg = julia_to_scm(ctx, expr);
     fl_context_t *fl_ctx = &ctx->fl;
-    value_t arg = julia_to_scm(fl_ctx, expr);
     value_t e = fl_applyn(fl_ctx, 3, symbol_value(symbol(fl_ctx, funcname)), arg,
                           symbol(fl_ctx, file), fixnum(line));
     jl_value_t *result = scm_to_julia(fl_ctx, e, inmodule);
@@ -1294,6 +1298,7 @@ JL_DLLEXPORT jl_value_t *jl_fl_lower(jl_value_t *expr, jl_module_t *inmodule,
     expr = jl_copy_ast(expr);
     expr = jl_expand_macros(expr, inmodule, NULL, 0, world, 1);
     jl_ast_context_t *ctx = jl_ast_ctx_enter(inmodule);
+    value_t arg = julia_to_scm(ctx, expr);
     fl_context_t *fl_ctx = &ctx->fl;
     value_t arg = julia_to_scm(fl_ctx, expr);
     value_t e = fl_applyn(fl_ctx, 3, symbol_value(symbol(fl_ctx, "jl-lower-to-thunk")), arg,
