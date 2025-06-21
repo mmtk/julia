@@ -254,7 +254,7 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection) {
     // print_fragmentation();
 }
 
-void gc_pin_objects_from_inference_engine(arraylist_t *objects_pinned_by_call)
+void gc_pin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)
 {
     for (size_t i = 0; i < gc_pinned_objects.len; i++) {
         void *obj = gc_pinned_objects.items[i];
@@ -263,9 +263,20 @@ void gc_pin_objects_from_inference_engine(arraylist_t *objects_pinned_by_call)
             arraylist_push(objects_pinned_by_call, obj);
         }
     }
+    for (size_t i = 0; i < jl_ast_ctx_used.len; i++) {
+        void *ctx = jl_ast_ctx_used.items[i];
+        arraylist_t *pinned_objects = extract_pinned_objects_from_ast_ctx(ctx);
+        for (size_t j = 0; j < pinned_objects->len; j++) {
+            void *obj = pinned_objects->items[j];
+            unsigned char got_pinned = mmtk_pin_object(obj);
+            if (got_pinned) {
+                arraylist_push(objects_pinned_by_call, obj);
+            }
+        }
+    }
 }
 
-void gc_unpin_objects_from_inference_engine(arraylist_t *objects_pinned_by_call)
+void gc_unpin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)
 {
     for (size_t i = 0; i < objects_pinned_by_call->len; i++) {
         void *obj = objects_pinned_by_call->items[i];
@@ -337,9 +348,9 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
 #ifndef __clang_gcanalyzer__
         arraylist_t objects_pinned_by_call;
         arraylist_new(&objects_pinned_by_call, 0);
-        gc_pin_objects_from_inference_engine(&objects_pinned_by_call);
+        gc_pin_objects_from_compiler_frontend(&objects_pinned_by_call);
         mmtk_block_thread_for_gc();
-        gc_unpin_objects_from_inference_engine(&objects_pinned_by_call);
+        gc_unpin_objects_from_compiler_frontend(&objects_pinned_by_call);
         arraylist_free(&objects_pinned_by_call);
 #endif
         JL_UNLOCK_NOGC(&finalizers_lock);
