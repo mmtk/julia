@@ -1346,6 +1346,8 @@ JL_DLLEXPORT JL_CONST_FUNC jl_gcframe_t **(jl_get_pgcstack)(void) JL_GLOBALLY_RO
 
 // object pinning  ------------------------------------------------------------
 
+// These are essentially roots at the moment.
+// We could consider merging this list with global roots list if we can push and pop from global roots list i the same way.
 extern arraylist_t gc_pinned_objects;
 typedef bool (*check_alive_fn_type)(void *);
 JL_DLLEXPORT void jl_set_check_alive_type(check_alive_fn_type fn);

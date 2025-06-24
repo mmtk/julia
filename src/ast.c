@@ -136,6 +136,7 @@ typedef struct _jl_ast_context_t {
     value_t ssavalue_sym;
     value_t slot_sym;
     jl_module_t *module; // context module for `current-julia-module-counter`
+    // These are essentially roots for ast context.
     arraylist_t pinned_objects;
 } jl_ast_context_t;
 
