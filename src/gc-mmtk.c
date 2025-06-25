@@ -74,7 +74,7 @@ void jl_gc_init(void) {
 
     jl_set_check_alive_type(mmtk_is_reachable_object);
 
-    arraylist_new(&gc_pinned_objects, 0);
+    arraylist_new(&extra_gc_roots, 0);
     arraylist_new(&to_finalize, 0);
     arraylist_new(&finalizer_list_marked, 0);
     gc_num.interval = default_collect_interval;
@@ -803,18 +803,18 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
         }
     }
 
-    // Trace objects in gc_pinned_objects
-    for (size_t i = 0; i < gc_pinned_objects.len; i++) {
-        void* obj = gc_pinned_objects.items[i];
+    // Trace objects in extra_gc_roots
+    for (size_t i = 0; i < extra_gc_roots.len; i++) {
+        void* obj = extra_gc_roots.items[i];
         add_node_to_roots_buffer(closure, &buf, &len, obj);
     }
 
     // Trace objects in jl_ast_ctx_used
     for (size_t i = 0; i < jl_ast_ctx_used.len; i++) {
         void *ctx = jl_ast_ctx_used.items[i];
-        arraylist_t *pinned_objects = extract_pinned_objects_from_ast_ctx(ctx);
-        for (size_t j = 0; j < pinned_objects->len; j++) {
-            void *obj = pinned_objects->items[j];
+        arraylist_t *ast_roots = extract_ast_roots_from_ast_ctx(ctx);
+        for (size_t j = 0; j < ast_roots->len; j++) {
+            void *obj = ast_roots->items[j];
             add_node_to_roots_buffer(closure, &buf, &len, obj);
         }
     }
