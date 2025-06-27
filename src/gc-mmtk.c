@@ -74,7 +74,7 @@ void jl_gc_init(void) {
 
     jl_set_check_alive_type(mmtk_is_reachable_object);
 
-    arraylist_new(&gc_pinned_objects, 0);
+    arraylist_new(&extra_gc_roots, 0);
     arraylist_new(&to_finalize, 0);
     arraylist_new(&finalizer_list_marked, 0);
     gc_num.interval = default_collect_interval;
@@ -254,36 +254,6 @@ JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection) {
     // print_fragmentation();
 }
 
-void gc_pin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)
-{
-    for (size_t i = 0; i < gc_pinned_objects.len; i++) {
-        void *obj = gc_pinned_objects.items[i];
-        unsigned char got_pinned = mmtk_pin_object(obj);
-        if (got_pinned) {
-            arraylist_push(objects_pinned_by_call, obj);
-        }
-    }
-    for (size_t i = 0; i < jl_ast_ctx_used.len; i++) {
-        void *ctx = jl_ast_ctx_used.items[i];
-        arraylist_t *pinned_objects = extract_pinned_objects_from_ast_ctx(ctx);
-        for (size_t j = 0; j < pinned_objects->len; j++) {
-            void *obj = pinned_objects->items[j];
-            unsigned char got_pinned = mmtk_pin_object(obj);
-            if (got_pinned) {
-                arraylist_push(objects_pinned_by_call, obj);
-            }
-        }
-    }
-}
-
-void gc_unpin_objects_from_compiler_frontend(arraylist_t *objects_pinned_by_call)
-{
-    for (size_t i = 0; i < objects_pinned_by_call->len; i++) {
-        void *obj = objects_pinned_by_call->items[i];
-        mmtk_unpin_object(obj);
-    }
-}
-
 // Based on jl_gc_collect from gc-stock.c
 // called when stopping the thread in `mmtk_block_for_gc`
 JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
@@ -346,12 +316,7 @@ JL_DLLEXPORT void jl_gc_prepare_to_collect(void)
         jl_gc_notify_thread_yield(ptls, NULL);
         JL_LOCK_NOGC(&finalizers_lock); // all the other threads are stopped, so this does not make sense, right? otherwise, failing that, this seems like plausibly a deadlock
 #ifndef __clang_gcanalyzer__
-        arraylist_t objects_pinned_by_call;
-        arraylist_new(&objects_pinned_by_call, 0);
-        gc_pin_objects_from_compiler_frontend(&objects_pinned_by_call);
         mmtk_block_thread_for_gc();
-        gc_unpin_objects_from_compiler_frontend(&objects_pinned_by_call);
-        arraylist_free(&objects_pinned_by_call);
 #endif
         JL_UNLOCK_NOGC(&finalizers_lock);
     }
@@ -835,6 +800,22 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
             add_node_to_roots_buffer(closure, &buf, &len, val);
             add_node_to_roots_buffer(closure, &buf, &len, field);
             add_node_to_roots_buffer(closure, &buf, &len, newval);
+        }
+    }
+
+    // Trace objects in extra_gc_roots
+    for (size_t i = 0; i < extra_gc_roots.len; i++) {
+        void* obj = extra_gc_roots.items[i];
+        add_node_to_roots_buffer(closure, &buf, &len, obj);
+    }
+
+    // Trace objects in jl_ast_ctx_used
+    for (size_t i = 0; i < jl_ast_ctx_used.len; i++) {
+        void *ctx = jl_ast_ctx_used.items[i];
+        arraylist_t *ast_roots = extract_ast_roots_from_ast_ctx(ctx);
+        for (size_t j = 0; j < ast_roots->len; j++) {
+            void *obj = ast_roots->items[j];
+            add_node_to_roots_buffer(closure, &buf, &len, obj);
         }
     }
 
