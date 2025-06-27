@@ -1346,7 +1346,9 @@ JL_DLLEXPORT JL_CONST_FUNC jl_gcframe_t **(jl_get_pgcstack)(void) JL_GLOBALLY_RO
 
 // object pinning  ------------------------------------------------------------
 
-extern arraylist_t gc_pinned_objects;
+// These 'new roots' are added for moving GCs.
+// We could consider merging this list with global roots list if we can push and pop from global roots list in the same way.
+extern arraylist_t extra_gc_roots;
 typedef bool (*check_alive_fn_type)(void *);
 JL_DLLEXPORT void jl_set_check_alive_type(check_alive_fn_type fn);
 JL_DLLEXPORT void jl_log_pinning_event(void *pinned_object, const char *filename, int lineno);
@@ -2439,7 +2441,7 @@ JL_DLLEXPORT void jl_register_newmeth_tracer(void (*callback)(jl_method_t *trace
 
 // AST access
 JL_DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr JL_MAYBE_UNROOTED);
-arraylist_t *extract_pinned_objects_from_ast_ctx(void *ctx);
+arraylist_t *extract_ast_roots_from_ast_ctx(void *ctx);
 extern arraylist_t jl_ast_ctx_used;
 
 // IR representation

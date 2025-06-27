@@ -136,18 +136,19 @@ typedef struct _jl_ast_context_t {
     value_t ssavalue_sym;
     value_t slot_sym;
     jl_module_t *module; // context module for `current-julia-module-counter`
-    arraylist_t pinned_objects;
+    // These are essentially roots for ast context.
+    arraylist_t ast_roots;
 } jl_ast_context_t;
 
 // FIXME: Ugly hack to get a pointer to the pinned objects
-arraylist_t *extract_pinned_objects_from_ast_ctx(void *ctx)
+arraylist_t *extract_ast_roots_from_ast_ctx(void *ctx)
 {
     // This is used to extract pinned objects from the context
     // for the purpose of pinning them in MMTk.
     if (ctx == NULL)
         return NULL;
     jl_ast_context_t *jl_ctx = (jl_ast_context_t*)ctx;
-    return &jl_ctx->pinned_objects;
+    return &jl_ctx->ast_roots;
 }
 
 static jl_ast_context_t jl_ast_main_ctx;
@@ -290,7 +291,7 @@ static void jl_init_ast_ctx(jl_ast_context_t *ctx) JL_NOTSAFEPOINT
     ctx->slot_sym = symbol(fl_ctx, "slot");
     ctx->module = NULL;
     set(symbol(fl_ctx, "*scopewarn-opt*"), fixnum(jl_options.warn_scope));
-    arraylist_new(&ctx->pinned_objects, 0);
+    arraylist_new(&ctx->ast_roots, 0);
 }
 
 // There should be no GC allocation while holding this lock
@@ -321,7 +322,7 @@ static void jl_ast_ctx_leave(jl_ast_context_t *ctx)
 {
     uv_mutex_lock(&flisp_lock);
     ctx->module = NULL;
-    ctx->pinned_objects.len = 0; // clear pinned objects
+    ctx->ast_roots.len = 0; // clear root objects
     arraylist_pop(&jl_ast_ctx_used);
     arraylist_push(&jl_ast_ctx_freed, ctx);
     uv_mutex_unlock(&flisp_lock);
@@ -802,7 +803,7 @@ static value_t julia_to_scm_(jl_ast_context_t *ctx, jl_value_t *v, int check_val
 {
     // The following code will take internal pointers to v's fields. We need to make sure
     // that v will not be moved by GC.
-    arraylist_push(&ctx->pinned_objects, v);
+    arraylist_push(&ctx->ast_roots, v);
     value_t retval;
     fl_context_t *fl_ctx = &ctx->fl;
     if (julia_to_scm_noalloc1(fl_ctx, v, &retval))
