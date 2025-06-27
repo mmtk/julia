@@ -797,6 +797,9 @@ static value_t julia_to_list2_noalloc(fl_context_t *fl_ctx, jl_value_t *a, jl_va
 
 static value_t julia_to_scm_(jl_ast_context_t *ctx, jl_value_t *v, int check_valid)
 {
+    // The following code will take internal pointers to v's fields. We need to make sure
+    // that v will not be moved by GC.
+    arraylist_push(&ctx->ast_roots, v);
     value_t retval;
     fl_context_t *fl_ctx = &ctx->fl;
     if (julia_to_scm_noalloc1(fl_ctx, v, &retval))
