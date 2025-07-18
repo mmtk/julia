@@ -1949,6 +1949,8 @@ static void jl_write_values(jl_serializer_state *s) JL_GC_DISABLED
                     size_t fldsize = sizeof(jl_datatype_layout_t) + nf * fieldsize;
                     if (!is_foreign_type && dt->layout->first_ptr != -1)
                         fldsize += np << dt->layout->flags.fielddesc_type;
+                    if (!is_foreign_type && dt->layout->first_hidden_ptr != -1)
+                        fldsize += dt->layout->nhidden_pointers * jl_hidden_desc_size(dt->layout->flags.fielddesc_type);
                     uintptr_t layout = LLT_ALIGN(ios_pos(s->const_data), sizeof(void*));
                     write_padding(s->const_data, layout - ios_pos(s->const_data)); // realign stream
                     newdt->layout = NULL; // relocation offset

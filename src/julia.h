@@ -573,11 +573,37 @@ typedef struct {
     uint32_t offset;   // offset relative to data start, excluding type tag
 } jl_fielddesc32_t;
 
+// Hidden pointer types for internal/derived pointers not tracked by regular GC
+typedef enum {
+    HIDDEN_PTR_PTR_OR_OFFSET = 0,  // Union of internal pointer or integer (like GenericMemoryRef)
+    HIDDEN_PTR_UNKNOWN = 1,        // Unknown type - conservative handling
+    // Future extensions can go here...
+    HIDDEN_PTR_TYPE_COUNT = 2
+} jl_hidden_ptr_type_t;
+
+// Hidden pointer descriptors for different field descriptor sizes
+typedef struct {
+    uint8_t field_offset;     // Field offset in pointer-sized units
+    uint8_t ptr_type;         // jl_hidden_ptr_type_t
+} jl_hidden_ptr_desc8_t;
+
+typedef struct {
+    uint16_t field_offset;
+    uint16_t ptr_type;        // jl_hidden_ptr_type_t
+} jl_hidden_ptr_desc16_t;
+
+typedef struct {
+    uint32_t field_offset;
+    uint32_t ptr_type;        // jl_hidden_ptr_type_t
+} jl_hidden_ptr_desc32_t;
+
 typedef struct {
     uint32_t size;
     uint32_t nfields;
-    uint32_t npointers; // number of pointers embedded inside
-    int32_t first_ptr; // index of the first pointer (or -1)
+    uint32_t npointers; // number of direct object pointers
+    uint32_t nhidden_pointers; // number of hidden/internal pointers
+    int32_t first_ptr; // index of the first direct pointer (or -1)
+    int32_t first_hidden_ptr; // index of the first hidden pointer (or -1)
     uint16_t alignment; // strictest alignment over all fields
     struct { // combine these fields into a struct so that we can take addressof them
         uint16_t haspadding : 1; // has internal undefined bytes
@@ -599,6 +625,11 @@ typedef struct {
     //     uint8_t ptr8[npointers];
     //     uint16_t ptr16[npointers];
     //     uint32_t ptr32[npointers];
+    // };
+    // union { // offsets relative to data start in words
+    //     jl_hidden_ptr_desc8_t ptr8[nhidden_pointers];
+    //     jl_hidden_ptr_desc16_t ptr16[nhidden_pointers];
+    //     jl_hidden_ptr_desc32_t ptr32[nhidden_pointers];
     // };
 } jl_datatype_layout_t;
 
@@ -1662,6 +1693,13 @@ static inline uint32_t jl_fielddesc_size(int8_t fielddesc_type) JL_NOTSAFEPOINT
     //}
 }
 
+static inline size_t jl_hidden_desc_size(int fielddesc_type) JL_NOTSAFEPOINT
+{
+    if (fielddesc_type == 0) return sizeof(jl_hidden_ptr_desc8_t);
+    if (fielddesc_type == 1) return sizeof(jl_hidden_ptr_desc16_t);
+    return sizeof(jl_hidden_ptr_desc32_t);
+}
+
 #define jl_dt_layout_fields(d) ((const char*)(d) + sizeof(jl_datatype_layout_t))
 static inline const char *jl_dt_layout_ptrs(const jl_datatype_layout_t *l) JL_NOTSAFEPOINT
 {
@@ -1713,6 +1751,51 @@ static inline uint32_t jl_ptr_offset(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
         return ((const uint32_t*)ptrs)[i];
     }
 }
+
+// Access functions for hidden pointer descriptors
+static inline const char *jl_dt_layout_hidden_ptrs(const jl_datatype_layout_t *l) JL_NOTSAFEPOINT
+{
+    const char *ptrs = jl_dt_layout_ptrs(l);
+    size_t direct_ptrs_size = l->first_ptr < 0 ? 0 : (l->npointers << l->flags.fielddesc_type);
+    return ptrs + direct_ptrs_size;
+}
+
+static inline uint32_t jl_hidden_ptr_offset(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
+{
+    const jl_datatype_layout_t *ly = st->layout;
+    assert(i >= 0 && (size_t)i < ly->nhidden_pointers);
+    const void *hidden_ptrs = jl_dt_layout_hidden_ptrs(ly);
+    
+    if (ly->flags.fielddesc_type == 0) {
+        return ((const jl_hidden_ptr_desc8_t*)hidden_ptrs)[i].field_offset;
+    }
+    else if (ly->flags.fielddesc_type == 1) {
+        return ((const jl_hidden_ptr_desc16_t*)hidden_ptrs)[i].field_offset;
+    }
+    else {
+        assert(ly->flags.fielddesc_type == 2);
+        return ((const jl_hidden_ptr_desc32_t*)hidden_ptrs)[i].field_offset;
+    }
+}
+
+static inline jl_hidden_ptr_type_t jl_hidden_ptr_type(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
+{
+    const jl_datatype_layout_t *ly = st->layout;
+    assert(i >= 0 && (size_t)i < ly->nhidden_pointers);
+    const void *hidden_ptrs = jl_dt_layout_hidden_ptrs(ly);
+    
+    if (ly->flags.fielddesc_type == 0) {
+        return (jl_hidden_ptr_type_t)((const jl_hidden_ptr_desc8_t*)hidden_ptrs)[i].ptr_type;
+    }
+    else if (ly->flags.fielddesc_type == 1) {
+        return (jl_hidden_ptr_type_t)((const jl_hidden_ptr_desc16_t*)hidden_ptrs)[i].ptr_type;
+    }
+    else {
+        assert(ly->flags.fielddesc_type == 2);
+        return (jl_hidden_ptr_type_t)((const jl_hidden_ptr_desc32_t*)hidden_ptrs)[i].ptr_type;
+    }
+}
+
 
 static inline int jl_field_isatomic(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
 {
