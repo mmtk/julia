@@ -80,6 +80,7 @@ JL_DLLEXPORT jl_typename_t *jl_new_typename_in(jl_sym_t *name, jl_module_t *modu
     tn->partial = NULL;
     tn->atomicfields = NULL;
     tn->constfields = NULL;
+    tn->hiddenptrfields = NULL;
     tn->max_methods = 0;
     tn->constprop_heustic = 0;
     return tn;
@@ -142,9 +143,8 @@ static uint32_t _hash_layout_djb2(uintptr_t _layout, void *unused) JL_NOTSAFEPOI
     const char *hidden_pointers = NULL;
     size_t hidden_ptrs_size = 0;
     if (layout->first_hidden_ptr >= 0) {
-        __builtin_unreachable();
         hidden_pointers = jl_dt_layout_hidden_ptrs(layout);
-        hidden_ptrs_size = layout->nhidden_pointers * jl_hidden_desc_size(layout->flags.fielddesc_type);
+        hidden_ptrs_size = layout->nhidden_pointers << layout->flags.fielddesc_type;
     }
 
     uint_t hash = 5381;
@@ -175,10 +175,9 @@ static int layout_eq(void *_l1, void *_l2, void *unused) JL_NOTSAFEPOINT
     if (memcmp(p1, p2, pointers_size))
         return 0;
     if (l1->first_hidden_ptr >= 0 && l2->first_hidden_ptr >= 0) {
-        __builtin_unreachable();
         const char *h1 = jl_dt_layout_hidden_ptrs(l1);
         const char *h2 = jl_dt_layout_hidden_ptrs(l2);
-        size_t hidden_ptrs_size = l1->nhidden_pointers * jl_hidden_desc_size(l1->flags.fielddesc_type);
+        size_t hidden_ptrs_size = l1->nhidden_pointers << l1->flags.fielddesc_type;
         if (memcmp(h1, h2, hidden_ptrs_size))
             return 0;
     }
@@ -204,7 +203,7 @@ static jl_datatype_layout_t *jl_get_layout(uint32_t sz,
                                            int arrayelem,
                                            jl_fielddesc32_t desc[],
                                            uint32_t pointers[],
-                                           jl_hidden_ptr_desc32_t hidden_ptr_descs[]) JL_NOTSAFEPOINT
+                                           uint32_t hidden_pointers[]) JL_NOTSAFEPOINT
 {
     assert(alignment); // should have been verified by caller
 
@@ -234,12 +233,12 @@ static jl_datatype_layout_t *jl_get_layout(uint32_t sz,
         }
     }
     int32_t first_ptr = (npointers > 0 ? (int32_t)pointers[0] : -1);
-    int32_t first_hidden_ptr = (nhidden_pointers > 0 ? 0 : -1);
+    int32_t first_hidden_ptr = (nhidden_pointers > 0 ? (int32_t)hidden_pointers[0] : -1);
 
     // allocate a new descriptor, on the stack if possible.
     size_t fields_size = nfields * jl_fielddesc_size(fielddesc_type);
     size_t pointers_size = first_ptr < 0 ? 0 : (npointers << fielddesc_type);
-    size_t hidden_ptrs_size = first_hidden_ptr < 0 ? 0 : (nhidden_pointers * jl_hidden_desc_size(fielddesc_type));
+    size_t hidden_ptrs_size = first_hidden_ptr < 0 ? 0 : (nhidden_pointers << fielddesc_type);
     size_t flddesc_sz = sizeof(jl_datatype_layout_t) + fields_size + pointers_size + hidden_ptrs_size;
     int should_malloc = flddesc_sz >= jl_page_size;
     jl_datatype_layout_t *mallocmem = (jl_datatype_layout_t *)(should_malloc ? malloc(flddesc_sz) : NULL);
@@ -297,25 +296,22 @@ static jl_datatype_layout_t *jl_get_layout(uint32_t sz,
             }
         }
     }
-    
+
     // fill out hidden pointer descriptors
-    if (first_hidden_ptr >= 0 && hidden_ptr_descs) {
-        jl_hidden_ptr_desc8_t *hptrs8 = (jl_hidden_ptr_desc8_t *)jl_dt_layout_hidden_ptrs(flddesc);
-        jl_hidden_ptr_desc16_t *hptrs16 = (jl_hidden_ptr_desc16_t *)jl_dt_layout_hidden_ptrs(flddesc);
-        jl_hidden_ptr_desc32_t *hptrs32 = (jl_hidden_ptr_desc32_t *)jl_dt_layout_hidden_ptrs(flddesc);
-        jl_hidden_ptr_desc32_t *src_descs = (jl_hidden_ptr_desc32_t *)hidden_ptr_descs;
+    if (first_hidden_ptr >= 0 && hidden_pointers) {
+        uint8_t *hptrs8 = (uint8_t *)jl_dt_layout_hidden_ptrs(flddesc);
+        uint16_t *hptrs16 = (uint16_t *)jl_dt_layout_hidden_ptrs(flddesc);
+        uint32_t *hptrs32 = (uint32_t *)jl_dt_layout_hidden_ptrs(flddesc);
+        uint32_t *src_descs = (uint32_t *)hidden_pointers;
         for (size_t i = 0; i < nhidden_pointers; i++) {
             if (fielddesc_type == 0) {
-                hptrs8[i].field_offset = src_descs[i].field_offset;
-                hptrs8[i].ptr_type = src_descs[i].ptr_type;
+                hptrs8[i] = src_descs[i];
             }
             else if (fielddesc_type == 1) {
-                hptrs16[i].field_offset = src_descs[i].field_offset;
-                hptrs16[i].ptr_type = src_descs[i].ptr_type;
+                hptrs16[i] = src_descs[i];
             }
             else {
-                hptrs32[i].field_offset = src_descs[i].field_offset;
-                hptrs32[i].ptr_type = src_descs[i].ptr_type;
+                hptrs32[i] = src_descs[i];
             }
         }
     }
@@ -721,6 +717,7 @@ void jl_compute_field_offsets(jl_datatype_t *st)
         size_t descsz = nfields * sizeof(jl_fielddesc32_t);
         jl_fielddesc32_t *desc;
         uint32_t *pointers;
+        uint32_t *hidden_pointers;
         int should_malloc = descsz >= jl_page_size;
         if (should_malloc)
             desc = (jl_fielddesc32_t*)malloc_s(descsz);
@@ -739,8 +736,17 @@ void jl_compute_field_offsets(jl_datatype_t *st)
         for (i = 0; i < nfields; i++) {
             jl_value_t *fld = jl_field_type(st, i);
             int isatomic = jl_field_isatomic(st, i);
+            int ishiddenptr = jl_field_ishiddenptr(st, i);
             size_t fsz = 0, al = 1;
-            if (jl_islayout_inline(fld, &fsz, &al) && (!isatomic || jl_is_datatype(fld))) { // aka jl_datatype_isinlinealloc
+            if (ishiddenptr) {
+                fsz = sizeof(void*);
+                al = fsz;
+                if (al > MAX_ALIGN)
+                    al = MAX_ALIGN;
+                desc[i].isptr = 0; // Hidden pointers are stored as non-pointer fields
+                nhidden_pointers++;
+            }
+            else if (jl_islayout_inline(fld, &fsz, &al) && (!isatomic || jl_is_datatype(fld))) { // aka jl_datatype_isinlinealloc
                 if (__unlikely(fsz > max_size))
                     // Should never happen
                     throw_ovf(should_malloc, desc, st, fsz);
@@ -833,22 +839,26 @@ void jl_compute_field_offsets(jl_datatype_t *st)
             pointers = (uint32_t*)malloc_s(npointers * sizeof(uint32_t));
         else
             pointers = (uint32_t*)alloca(npointers * sizeof(uint32_t));
-        
-        jl_hidden_ptr_desc32_t *hidden_ptr_descs = NULL;
-        if (nhidden_pointers > 0) {
-            if (should_malloc)
-                hidden_ptr_descs = (jl_hidden_ptr_desc32_t*)malloc_s(nhidden_pointers * sizeof(jl_hidden_ptr_desc32_t));
-            else
-                hidden_ptr_descs = (jl_hidden_ptr_desc32_t*)alloca(nhidden_pointers * sizeof(jl_hidden_ptr_desc32_t));
+        if (should_malloc && nhidden_pointers) {
+            hidden_pointers = (uint32_t*)malloc_s(nhidden_pointers * sizeof(uint32_t));
+        } else {
+            hidden_pointers = (uint32_t*)alloca(nhidden_pointers * sizeof(uint32_t));
         }
         size_t ptr_i = 0;
         size_t hptr_i = 0;
         for (i = 0; i < nfields; i++) {
             jl_value_t *fld = jl_field_type(st, i);
             uint32_t offset = desc[i].offset / sizeof(jl_value_t**);
-            if (desc[i].isptr)
+            int ishiddenptr = jl_field_ishiddenptr(st, i);
+            if (ishiddenptr) {
+                // Direct hidden pointer field
+                hidden_pointers[hptr_i] = offset;
+                hptr_i++;
+            }
+            else if (desc[i].isptr)
                 pointers[ptr_i++] = offset;
             else if (jl_is_datatype(fld)) {
+                // Handle nested datatype with regular/hidden pointers
                 int j, npointers = ((jl_datatype_t*)fld)->layout->npointers;
                 for (j = 0; j < npointers; j++) {
                     pointers[ptr_i++] = offset + jl_ptr_offset((jl_datatype_t*)fld, j);
@@ -856,21 +866,34 @@ void jl_compute_field_offsets(jl_datatype_t *st)
                 // Copy hidden pointers from nested field
                 int nhidden = ((jl_datatype_t*)fld)->layout->nhidden_pointers;
                 for (j = 0; j < nhidden; j++) {
-                    hidden_ptr_descs[hptr_i].field_offset = offset + jl_hidden_ptr_offset((jl_datatype_t*)fld, j);
-                    hidden_ptr_descs[hptr_i].ptr_type = jl_hidden_ptr_type((jl_datatype_t*)fld, j);
+                    hidden_pointers[hptr_i] = offset + jl_hidden_ptr_offset((jl_datatype_t*)fld, j);
                     hptr_i++;
                 }
             }
         }
         assert(ptr_i == npointers);
         assert(hptr_i == nhidden_pointers);
-        st->layout = jl_get_layout(sz, nfields, npointers, nhidden_pointers, alignm, haspadding, isbitsegal, 0, desc, pointers, hidden_ptr_descs);
+        st->layout = jl_get_layout(sz, nfields, npointers, nhidden_pointers, alignm, haspadding, isbitsegal, 0, desc, pointers, hidden_pointers);
+
+        // Validation: Ensure no overlap between pointer and hidden pointer offsets
+        if (npointers > 0 && nhidden_pointers > 0) {
+            for (size_t p = 0; p < npointers; p++) {
+                for (size_t hp = 0; hp < nhidden_pointers; hp++) {
+                    if (pointers[p] == hidden_pointers[hp]) {
+                        jl_errorf("Field offset conflict: field at offset %u appears in both regular pointer offsets and hidden pointer offsets",
+                                  pointers[p]);
+                    }
+                }
+            }
+        }
+
+        // All hidden pointers are assumed to be PtrOrOffset type
         if (should_malloc) {
             free(desc);
             if (npointers)
                 free(pointers);
             if (nhidden_pointers)
-                free(hidden_ptr_descs);
+                free(hidden_pointers);
         }
         st->zeroinit = zeroinit;
     }
@@ -883,7 +906,7 @@ void jl_compute_field_offsets(jl_datatype_t *st)
     return;
 }
 
-JL_DLLEXPORT jl_datatype_t *jl_new_datatype(
+JL_DLLEXPORT jl_datatype_t *jl_new_datatype_with_hiddenptrs(
         jl_sym_t *name,
         jl_module_t *module,
         jl_datatype_t *super,
@@ -892,7 +915,8 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(
         jl_svec_t *ftypes,
         jl_svec_t *fattrs,
         int abstract, int mutabl,
-        int ninitialized)
+        int ninitialized,
+        uint32_t* hiddenptrfields)
 {
     jl_datatype_t *t = NULL;
     jl_typename_t *tn = NULL;
@@ -982,6 +1006,7 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(
     }
     tn->atomicfields = atomicfields;
     tn->constfields = constfields;
+    tn->hiddenptrfields = hiddenptrfields;
 
     if (t->name->wrapper == NULL) {
         t->name->wrapper = (jl_value_t*)t;
@@ -1001,6 +1026,22 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(
 
     JL_GC_POP();
     return t;
+}
+
+JL_DLLEXPORT jl_datatype_t *jl_new_datatype(
+        jl_sym_t *name,
+        jl_module_t *module,
+        jl_datatype_t *super,
+        jl_svec_t *parameters,
+        jl_svec_t *fnames,
+        jl_svec_t *ftypes,
+        jl_svec_t *fattrs,
+        int abstract, int mutabl,
+        int ninitialized)
+{
+    return jl_new_datatype_with_hiddenptrs(
+        name, module, super, parameters, fnames, ftypes, fattrs,
+        abstract, mutabl, ninitialized, NULL);
 }
 
 JL_DLLEXPORT jl_datatype_t *jl_new_primitivetype(jl_value_t *name, jl_module_t *module,
