@@ -3131,9 +3131,9 @@ static void jl_save_system_image_to_stream(ios_t *f, jl_array_t *mod_array,
     htable_new(&symbol_table, 0);
     htable_new(&fptr_to_id, jl_n_builtins);
     uintptr_t i;
-    for (i = 0; id_to_fptrs[i] != NULL; i++) {
-        PTRHASH_PIN(id_to_fptrs[i])
-        ptrhash_put(&fptr_to_id, (void*)(uintptr_t)id_to_fptrs[i], (void*)(i + 2));
+    for (i = 0; i < jl_n_builtins; i++) {
+        PTRHASH_PIN(jl_builtin_f_addrs[i])
+        ptrhash_put(&fptr_to_id, (void*)(uintptr_t)jl_builtin_f_addrs[i], (void*)(i + 2));
     }
     htable_new(&serialization_order, 25000);
     htable_new(&nullptrs, 0);

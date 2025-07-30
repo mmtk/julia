@@ -425,7 +425,7 @@ void *jl_get_abi_converter(jl_task_t *ct, void *data)
         return f;
     };
     bool is_opaque_closure = false;
-    jl_abi_t from_abi = { sigt, declrt, nargs, specsig, is_opaque_closure };
+    jl_abi_t from_abi = { jl_pinned_ref_create(jl_value_t, sigt), jl_pinned_ref_create(jl_value_t, declrt), nargs, specsig, is_opaque_closure };
     if (codeinst == nullptr) {
         // Generate an adapter to a dynamic dispatch
         if (cfuncdata->unspecialized == nullptr)
