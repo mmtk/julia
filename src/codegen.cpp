@@ -4145,10 +4145,10 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
 
     else if (f == BUILTIN(memoryrefnew) && (nargs == 2 || nargs == 3)) {
         const jl_cgval_t &ref = argv[1];
-        jl_value_t *mty_dt = jl_unwrap_unionall(jl_pinned_ref_get(ref.typ));
-        if (jl_is_genericmemoryref_type(mty_dt) && jl_is_concrete_type(mty_dt)) {
-            mty_dt = jl_field_type_concrete((jl_datatype_t*)mty_dt, 1);
-            const jl_datatype_layout_t *layout = ((jl_datatype_t*)mty_dt)->layout;
+        jl_datatype_t *mty_dt = (jl_datatype_t*)jl_unwrap_unionall(jl_pinned_ref_get(ref.typ));
+        if (jl_is_genericmemoryref_type(mty_dt) && jl_is_concrete_type((jl_value_t*)mty_dt)) {
+            mty_dt = (jl_datatype_t*)jl_field_type_concrete(mty_dt, 1);
+            const jl_datatype_layout_t *layout = mty_dt->layout;
             jl_value_t *boundscheck = nargs == 3 ? jl_pinned_ref_get(argv[3].constant) : nullptr;
             if (nargs == 3)
                 emit_typecheck(ctx, argv[3], (jl_value_t*)jl_bool_type, "memoryrefnew");
@@ -4157,7 +4157,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
         }
         if (jl_is_genericmemory_type(mty_dt) && jl_is_concrete_type((jl_value_t*)mty_dt)) {
             const jl_datatype_layout_t *layout = mty_dt->layout;
-            jl_value_t *boundscheck = nargs == 3 ? argv[3].constant : nullptr;
+            jl_value_t *boundscheck = nargs == 3 ? jl_pinned_ref_get(argv[3].constant) : nullptr;
             if (nargs == 3)
                 emit_typecheck(ctx, argv[3], (jl_value_t*)jl_bool_type, "memoryrefnew");
             jl_value_t *typ = jl_apply_type((jl_value_t*)jl_genericmemoryref_type, jl_svec_data(mty_dt->parameters), jl_svec_len(mty_dt->parameters));
@@ -5344,19 +5344,19 @@ static jl_cgval_t emit_invoke_modify(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_
         if (f.constant == BUILTIN(modifyfield)) {
             if (emit_f_opfield(ctx, &ret, BUILTIN(modifyfield), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (f.constant == BUILTIN(modifyglobal)) {
             if (emit_f_opglobal(ctx, &ret, BUILTIN(modifyglobal), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (f.constant == BUILTIN(memoryrefmodify)) {
             if (emit_f_opmemory(ctx, &ret, BUILTIN(memoryrefmodify), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (jl_typetagis(jl_pinned_ref_get(f.constant), jl_intrinsic_type)) {
@@ -5437,12 +5437,12 @@ static jl_cgval_t emit_call(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_t *rt, bo
         setName(ctx.emission_context, ret, "Builtin_ret");
         return mark_julia_type(ctx, ret, true, rt);
     }
-    else if (f.constant && jl_isa(f.constant, (jl_value_t*)jl_builtin_type)) {
+    else if (f.constant && jl_isa(jl_pinned_ref_get(f.constant), (jl_value_t*)jl_builtin_type)) {
         jl_cgval_t result;
-        bool handled = emit_builtin_call(ctx, &result, f.constant, argv, nargs - 1, rt, ex, is_promotable);
+        bool handled = emit_builtin_call(ctx, &result, jl_pinned_ref_get(f.constant), argv, nargs - 1, rt, ex, is_promotable);
         if (handled)
             return result;
-        auto it = builtin_func_map().find(f.constant);
+        auto it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
         if (it != builtin_func_map().end()) {
             Value *ret = emit_jlcall(ctx, it->second, Constant::getNullValue(ctx.types().T_prjlvalue), ArrayRef<jl_cgval_t>(argv).drop_front(), nargs - 1, julia_call);
             setName(ctx.emission_context, ret, it->second->name + "_ret");
@@ -6813,7 +6813,7 @@ static Function *emit_modifyhelper(jl_codectx_t &ctx2, const jl_cgval_t &op, con
     }
     assert(AI == w->arg_end());
     ctx.f = w;
-    ctx.rettype = jltype;
+    ctx.rettype = jl_pinned_ref_create(jl_value_t, jltype);
     BasicBlock *b0 = BasicBlock::Create(ctx.builder.getContext(), "top", w);
     ctx.builder.SetInsertPoint(b0);
     DebugLoc noDbg;
@@ -7104,17 +7104,17 @@ std::string emit_abi_converter(Module *M, jl_codegen_params_t &params, jl_abi_t 
         jl_value_t *abi = get_ci_abi(codeinst);
         jl_returninfo_t targetspec = get_specsig_function(params, M, target, "", abi, codeinst->rettype, target_is_opaque_closure);
         if (from_abi.specsig)
-            emit_specsig_to_specsig(M, gf_thunk_name, from_abi.sigt, from_abi.rt, from_abi.is_opaque_closure, from_abi.nargs, params,
+            emit_specsig_to_specsig(M, gf_thunk_name, jl_pinned_ref_get(from_abi.sigt), jl_pinned_ref_get(from_abi.rt), from_abi.is_opaque_closure, from_abi.nargs, params,
                     target, mi->specTypes, codeinst->rettype, &targetspec, nullptr);
         else
-            gen_invoke_wrapper(mi, abi, codeinst->rettype, from_abi.rt, targetspec, from_abi.nargs, -1, from_abi.is_opaque_closure, gf_thunk_name, M, params);
+            gen_invoke_wrapper(mi, abi, codeinst->rettype, jl_pinned_ref_get(from_abi.rt), targetspec, from_abi.nargs, -1, from_abi.is_opaque_closure, gf_thunk_name, M, params);
     }
     else {
         if (from_abi.specsig)
-            emit_specsig_to_specsig(M, gf_thunk_name, from_abi.sigt, from_abi.rt, from_abi.is_opaque_closure, from_abi.nargs, params,
+            emit_specsig_to_specsig(M, gf_thunk_name, jl_pinned_ref_get(from_abi.sigt), jl_pinned_ref_get(from_abi.rt), from_abi.is_opaque_closure, from_abi.nargs, params,
                     target, mi->specTypes, codeinst->rettype, nullptr, nullptr);
         else
-            emit_fptr1_wrapper(M, gf_thunk_name, target, nullptr, from_abi.rt, codeinst->rettype, params);
+            emit_fptr1_wrapper(M, gf_thunk_name, target, nullptr, jl_pinned_ref_get(from_abi.rt), codeinst->rettype, params);
     }
     return gf_thunk_name;
 }
@@ -7137,10 +7137,10 @@ std::string emit_abi_dispatcher(Module *M, jl_codegen_params_t &params, jl_abi_t
         raw_string_ostream(gf_thunk_name) << "j_";
     raw_string_ostream(gf_thunk_name) << jl_atomic_fetch_add_relaxed(&globalUniqueGeneratedNames, 1) << "_gfthunk";
     if (from_abi.specsig)
-        emit_specsig_to_specsig(M, gf_thunk_name, from_abi.sigt, from_abi.rt, from_abi.is_opaque_closure, from_abi.nargs, params,
-                target, from_abi.sigt, codeinst ? codeinst->rettype : (jl_value_t*)jl_any_type, nullptr, nullptr);
+        emit_specsig_to_specsig(M, gf_thunk_name, jl_pinned_ref_get(from_abi.sigt), jl_pinned_ref_get(from_abi.rt), from_abi.is_opaque_closure, from_abi.nargs, params,
+                target, jl_pinned_ref_get(from_abi.sigt), codeinst ? codeinst->rettype : (jl_value_t*)jl_any_type, nullptr, nullptr);
     else
-        emit_fptr1_wrapper(M, gf_thunk_name, target, nullptr, from_abi.rt, codeinst ? codeinst->rettype : (jl_value_t*)jl_any_type, params);
+        emit_fptr1_wrapper(M, gf_thunk_name, target, nullptr, jl_pinned_ref_get(from_abi.rt), codeinst ? codeinst->rettype : (jl_value_t*)jl_any_type, params);
     return gf_thunk_name;
 }
 
@@ -7149,11 +7149,11 @@ std::string emit_abi_constreturn(Module *M, jl_codegen_params_t &params, jl_abi_
     std::string gf_thunk_name;
     raw_string_ostream(gf_thunk_name) << "jconst_" << jl_atomic_fetch_add_relaxed(&globalUniqueGeneratedNames, 1);
     if (from_abi.specsig) {
-        emit_specsig_to_specsig(M, gf_thunk_name, from_abi.sigt, from_abi.rt, from_abi.is_opaque_closure, from_abi.nargs, params,
-                nullptr, from_abi.sigt, jl_typeof(rettype_const), nullptr, rettype_const);
+        emit_specsig_to_specsig(M, gf_thunk_name, jl_pinned_ref_get(from_abi.sigt), jl_pinned_ref_get(from_abi.rt), from_abi.is_opaque_closure, from_abi.nargs, params,
+                nullptr, jl_pinned_ref_get(from_abi.sigt), jl_typeof(rettype_const), nullptr, rettype_const);
     }
     else {
-        emit_fptr1_wrapper(M, gf_thunk_name, nullptr, rettype_const, from_abi.rt, jl_typeof(rettype_const), params);
+        emit_fptr1_wrapper(M, gf_thunk_name, nullptr, rettype_const, jl_pinned_ref_get(from_abi.rt), jl_typeof(rettype_const), params);
     }
     return gf_thunk_name;
 }
@@ -7167,7 +7167,7 @@ std::string emit_abi_constreturn(Module *M, jl_codegen_params_t &params, bool sp
     bool is_opaque_closure = jl_is_method(mi->def.value) && mi->def.method->is_for_opaque_closure;
 
     size_t nargs = specsig ? jl_nparams(sigt) : 0;
-    jl_abi_t abi = {sigt, rt, nargs, specsig, is_opaque_closure};
+    jl_abi_t abi = {jl_pinned_ref_create(jl_value_t, sigt), jl_pinned_ref_create(jl_value_t, rt), nargs, specsig, is_opaque_closure};
 
     return emit_abi_constreturn(M, params, abi, codeinst->rettype_const);
 }
@@ -7225,12 +7225,8 @@ static jl_cgval_t emit_abi_call(jl_codectx_t &ctx, jl_value_t *declrt, jl_value_
                 cw->setAttributes(getcaller->getAttributes());
                 return cw;
             });
-<<<<<<< HEAD
-        jl_abi_t cfuncabi = {sigt, declrt, nargs, specsig, is_opaque_closure};
+        jl_abi_t cfuncabi = {jl_pinned_ref_create(jl_value_t, sigt), jl_pinned_ref_create(jl_value_t, declrt), nargs, specsig, is_opaque_closure};
         ctx.emission_context.cfuncs.push_back({cfuncabi, cfuncdata});
-=======
-        ctx.emission_context.cfuncs.push_back({jl_pinned_ref_create(jl_value_t, declrt), jl_pinned_ref_create(jl_value_t, sigt), nargs, specsig, theFptr, cfuncdata});
->>>>>>> 534a777f1f (Wrapping types from cfunc_decl_t with jl_pinned_ref)
         if (specsig) {
             // TODO: could we force this to guarantee passing a box for `f` here (since we
             // know we had it here) and on the receiver end (emit_abi_converter /
@@ -7661,8 +7657,8 @@ static jl_cgval_t emit_cfunction(jl_codectx_t &ctx, jl_value_t *output_type, con
     // compute+verify the dispatch signature, and see if it depends on the environment sparams
     bool approx = false;
     sigt = (jl_value_t*)jl_alloc_svec(nargt + 1);
-    jl_svecset(sigt, 0, fexpr_rt.typ);
-    if (!fexpr_rt.constant && (!jl_is_concrete_type(jl_pinned_ref_get(fexpr_rt.typ)) || jl_is_kind(jl_pinned_ref_get(fexpr_rt.typ))))
+    jl_svecset(sigt, 0, fexpr_val.typ);
+    if (!fexpr_val.constant && (!jl_is_concrete_type(jl_pinned_ref_get(fexpr_val.typ)) || jl_is_kind(jl_pinned_ref_get(fexpr_val.typ))))
         approx = true;
     for (size_t i = 0; i < nargt; i++) {
         jl_value_t *jargty = jl_svecref(argt, i);
@@ -7699,10 +7695,10 @@ static jl_cgval_t emit_cfunction(jl_codectx_t &ctx, jl_value_t *output_type, con
             return jl_cgval_t();
         }
     }
-    const char *name = derive_sigt_name(jl_pinned_ref_get(fexpr_rt.typ));
+    const char *name = derive_sigt_name(jl_pinned_ref_get(fexpr_val.typ));
     Value *F = gen_cfun_wrapper(
             jl_Module, ctx.emission_context,
-            sig, jl_pinned_ref_get(fexpr_rt.constant), name,
+            sig, jl_pinned_ref_get(fexpr_val.constant), name,
             declrt, sigt,
             unionall_env, sparam_vals, &closure_types);
     bool outboxed;
@@ -7749,7 +7745,7 @@ static jl_cgval_t emit_cfunction(jl_codectx_t &ctx, jl_value_t *output_type, con
             jl_aliasinfo_t ai = jl_aliasinfo_t::fromTBAA(ctx, tbaa);
             ai.decorateInst(ctx.builder.CreateStore(F, derived_strct));
             ai.decorateInst(ctx.builder.CreateStore(
-                ctx.builder.CreatePtrToInt(literal_pointer_val(ctx, jl_pinned_ref_get(fexpr_rt.constant)), ctx.types().T_size),
+                ctx.builder.CreatePtrToInt(literal_pointer_val(ctx, jl_pinned_ref_get(fexpr_val.constant)), ctx.types().T_size),
                 ctx.builder.CreateConstInBoundsGEP1_32(ctx.types().T_size, derived_strct, 1)));
             ai.decorateInst(ctx.builder.CreateStore(Constant::getNullValue(ctx.types().T_size),
                     ctx.builder.CreateConstInBoundsGEP1_32(ctx.types().T_size, derived_strct, 2)));

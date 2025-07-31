@@ -577,10 +577,10 @@ static void generate_cfunc_thunks(jl_codegen_params_t &params, jl_compiled_funct
     }
     size_t latestworld = jl_atomic_load_acquire(&jl_world_counter);
     for (cfunc_decl_t &cfunc : params.cfuncs) {
-        Module *M = cfunc.theFptr->getParent();
-        jl_value_t *sigt = jl_pinned_ref_get(cfunc.sigt);
+        Module *M = cfunc.cfuncdata->getParent();
+        jl_value_t *sigt = jl_pinned_ref_get(cfunc.abi.sigt);
         JL_GC_PROMISE_ROOTED(sigt);
-        jl_value_t *declrt = jl_pinned_ref_get(cfunc.declrt);
+        jl_value_t *declrt = jl_pinned_ref_get(cfunc.abi.rt);
         JL_GC_PROMISE_ROOTED(declrt);
         Function *unspec = aot_abi_converter(params, M, cfunc.abi, nullptr, nullptr, "", "", false);
         jl_code_instance_t *codeinst = nullptr;

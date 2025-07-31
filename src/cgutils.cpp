@@ -2418,11 +2418,11 @@ static jl_cgval_t typed_store(jl_codectx_t &ctx,
         // emit this only if we have a possibility of optimizing it
         if (Order == AtomicOrdering::Unordered)
             Order = AtomicOrdering::Monotonic;
-        if (jl_is_pointerfree(rhs.typ) && !rhs.isghost && (rhs.constant || rhs.isboxed || rhs.ispointer())) {
+        if (jl_is_pointerfree(jl_pinned_ref_get(rhs.typ)) && !rhs.isghost && (rhs.constant || rhs.isboxed || rhs.ispointer())) {
             // if this value can be loaded from memory, do that now so that it is sequenced before the atomicmodify
             // and the IR is less dependent on what was emitted before now to create this rhs.
             // Inlining should do okay to clean this up later if there are parts we don't need.
-            rhs = jl_cgval_t(emit_unbox(ctx, julia_type_to_llvm(ctx, rhs.typ), rhs, rhs.typ), rhs.typ, NULL);
+            rhs = jl_cgval_t(emit_unbox(ctx, julia_type_to_llvm(ctx, jl_pinned_ref_get(rhs.typ)), rhs, jl_pinned_ref_get(rhs.typ)), jl_pinned_ref_get(rhs.typ), NULL);
         }
         bool gcstack_arg = JL_FEAT_TEST(ctx,gcstack_arg);
         Function *op = emit_modifyhelper(ctx, cmpop, *modifyop, jltype, elty, rhs, fname, gcstack_arg);
@@ -2498,11 +2498,11 @@ static jl_cgval_t typed_store(jl_codectx_t &ctx,
                 if (realelty != elty)
                     Compare = ctx.builder.CreateZExt(Compare, elty);
             }
-            else if (cmp.isboxed || cmp.constant || jl_pointer_egal(jltype)) {
-                Compare = boxed(ctx, cmp);
-                needloop = !jl_pointer_egal(jltype) && !jl_pointer_egal(jl_pinned_ref_get(cmp.typ));
-                if (needloop && !cmp.isboxed) // try to use the same box in the compare now and later
-                    cmp = mark_julia_type(ctx, Compare, true, jl_pinned_ref_get(cmp.typ));
+            else if (cmpop.isboxed || cmpop.constant || jl_pointer_egal(jltype)) {
+                Compare = boxed(ctx, cmpop);
+                needloop = !jl_pointer_egal(jltype) && !jl_pointer_egal(jl_pinned_ref_get(cmpop.typ));
+                if (needloop && !cmpop.isboxed) // try to use the same box in the compare now and later
+                    cmpop = mark_julia_type(ctx, Compare, true, jl_pinned_ref_get(cmpop.typ));
             }
             else {
                 Compare = Constant::getNullValue(ctx.types().T_prjlvalue); // TODO: does this need to be an invalid bit pattern?

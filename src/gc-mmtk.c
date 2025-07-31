@@ -545,9 +545,7 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
         TRACE_GLOBALLY_ROOTED(call_cache[i]);
     }
     // julia_internal.h
-    TRACE_GLOBALLY_ROOTED(jl_type_type_mt);
-    TRACE_GLOBALLY_ROOTED(jl_nonfunction_mt);
-    TRACE_GLOBALLY_ROOTED(jl_kwcall_mt);
+    TRACE_GLOBALLY_ROOTED(jl_typeinf_func);
     TRACE_GLOBALLY_ROOTED(jl_opaque_closure_method);
     TRACE_GLOBALLY_ROOTED(jl_nulldebuginfo);
     TRACE_GLOBALLY_ROOTED(_jl_debug_method_invalidation);
@@ -709,14 +707,13 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     TRACE_GLOBALLY_ROOTED(jl_methtable_type);
     TRACE_GLOBALLY_ROOTED(jl_typemap_level_type);
     TRACE_GLOBALLY_ROOTED(jl_typemap_entry_type);
+    TRACE_GLOBALLY_ROOTED(jl_kwcall_type);
 
     TRACE_GLOBALLY_ROOTED(jl_emptysvec);
     TRACE_GLOBALLY_ROOTED(jl_emptytuple);
     TRACE_GLOBALLY_ROOTED(jl_true);
     TRACE_GLOBALLY_ROOTED(jl_false);
     TRACE_GLOBALLY_ROOTED(jl_nothing);
-    TRACE_GLOBALLY_ROOTED(jl_kwcall_func);
-
     TRACE_GLOBALLY_ROOTED(jl_libdl_dlopen_func);
 
     TRACE_GLOBALLY_ROOTED(jl_main_module);

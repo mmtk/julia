@@ -280,7 +280,7 @@ void *jl_jit_abi_converter_impl(jl_task_t *ct, jl_abi_t from_abi,
             }
             else if (invoke == jl_fptr_args_addr) {
                 assert(specptr != nullptr);
-                if (!from_abi.specsig && jl_subtype(codeinst->rettype, from_abi.rt))
+                if (!from_abi.specsig && jl_subtype(codeinst->rettype, jl_pinned_ref_get(from_abi.rt)))
                     return specptr; // no adapter required
 
                 target = specptr;
@@ -288,7 +288,7 @@ void *jl_jit_abi_converter_impl(jl_task_t *ct, jl_abi_t from_abi,
             }
             else if (specsigflags & 0b1) {
                 assert(specptr != nullptr);
-                if (from_abi.specsig && jl_egal(mi->specTypes, from_abi.sigt) && jl_egal(codeinst->rettype, from_abi.rt))
+                if (from_abi.specsig && jl_egal(mi->specTypes, jl_pinned_ref_get(from_abi.sigt)) && jl_egal(codeinst->rettype, jl_pinned_ref_get(from_abi.rt)))
                     return specptr; // no adapter required
 
                 target = specptr;
