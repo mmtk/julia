@@ -5415,7 +5415,7 @@ static jl_cgval_t emit_call(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_t *rt, bo
     if (f.typ == jl_bottom_type) {
         return jl_cgval_t();
     }
-    
+
     // a couple intrinsics (really just llvmcall, though partly cglobal too)
     // have non-standard (aka invalid) evaluation semantics, so we must handle these first
     if (f.constant && jl_typetagis(jl_pinned_ref_get(f.constant), jl_intrinsic_type)) {
