@@ -521,7 +521,9 @@ struct DataTypeLayout
     size::UInt32
     nfields::UInt32
     npointers::UInt32
+    nhidden_pointers::UInt32
     firstptr::Int32
+    firsthiddenptr::Int32
     alignment::UInt16
     flags::UInt16
     # haspadding : 1;
