@@ -532,7 +532,6 @@ typedef struct {
     jl_svec_t *names;  // field names
     const uint32_t *atomicfields; // if any fields are atomic, we record them here
     const uint32_t *constfields; // if any fields are const, we record them here
-    const uint32_t *hiddenptrfields; // if any fields are hidden pointers, we record them here
     // `wrapper` is either the only instantiation of the type (if no parameters)
     // or a UnionAll accepting parameters to make an instantiation.
     jl_value_t *wrapper;
@@ -550,6 +549,7 @@ typedef struct {
     uint8_t _reserved:5;
     uint8_t max_methods; // override for inference's max_methods setting (0 = no additional limit or relaxation)
     uint8_t constprop_heustic; // override for inference's constprop heuristic
+    const uint32_t *hiddenptrfields; // if any fields are hidden pointers, we record them here
 } jl_typename_t;
 
 typedef struct {
