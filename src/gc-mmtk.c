@@ -741,7 +741,6 @@ void trace_partial_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* b
 {
     // add module
     TRACE_GLOBALLY_ROOTED(jl_main_module);
-
     // invisible builtin values
     TRACE_GLOBALLY_ROOTED(jl_method_table);
     TRACE_GLOBALLY_ROOTED(jl_an_empty_vec_any);
