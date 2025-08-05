@@ -1312,7 +1312,6 @@ JL_DLLEXPORT jl_value_t *jl_fl_lower(jl_value_t *expr, jl_module_t *inmodule,
     jl_ast_context_t *ctx = jl_ast_ctx_enter(inmodule);
     value_t arg = julia_to_scm(ctx, expr);
     fl_context_t *fl_ctx = &ctx->fl;
-    value_t arg = julia_to_scm(fl_ctx, expr);
     value_t e = fl_applyn(fl_ctx, 3, symbol_value(symbol(fl_ctx, "jl-lower-to-thunk")), arg,
                           symbol(fl_ctx, filename), fixnum(line));
     value_t lwr = car_(e);

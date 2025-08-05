@@ -2418,11 +2418,11 @@ static jl_cgval_t typed_store(jl_codectx_t &ctx,
         // emit this only if we have a possibility of optimizing it
         if (Order == AtomicOrdering::Unordered)
             Order = AtomicOrdering::Monotonic;
-        if (jl_is_pointerfree(rhs.typ) && !rhs.isghost && (rhs.constant || rhs.isboxed || rhs.ispointer())) {
+        if (jl_is_pointerfree(jl_pinned_ref_get(rhs.typ)) && !rhs.isghost && (rhs.constant || rhs.isboxed || rhs.ispointer())) {
             // if this value can be loaded from memory, do that now so that it is sequenced before the atomicmodify
             // and the IR is less dependent on what was emitted before now to create this rhs.
             // Inlining should do okay to clean this up later if there are parts we don't need.
-            rhs = jl_cgval_t(emit_unbox(ctx, julia_type_to_llvm(ctx, rhs.typ), rhs, rhs.typ), rhs.typ, NULL);
+            rhs = jl_cgval_t(emit_unbox(ctx, julia_type_to_llvm(ctx, jl_pinned_ref_get(rhs.typ)), rhs, jl_pinned_ref_get(rhs.typ)), jl_pinned_ref_get(rhs.typ), NULL);
         }
         bool gcstack_arg = JL_FEAT_TEST(ctx,gcstack_arg);
         Function *op = emit_modifyhelper(ctx, cmpop, *modifyop, jltype, elty, rhs, fname, gcstack_arg);
@@ -4718,7 +4718,7 @@ static jl_cgval_t emit_memoryref_direct(jl_codectx_t &ctx, const jl_cgval_t &mem
 
     } else {
         data = emit_genericmemoryptr(ctx, boxmem, layout, 0);
-        idx0 = ctx.builder.CreateMul(idx0, emit_genericmemoryelsize(ctx, boxmem, mem.typ, false), "", true, true);
+        idx0 = ctx.builder.CreateMul(idx0, emit_genericmemoryelsize(ctx, boxmem, jl_pinned_ref_get(mem.typ), false), "", true, true);
         data = ctx.builder.CreatePtrAdd(data, idx0);
     }
 
