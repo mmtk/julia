@@ -188,9 +188,12 @@ JL_EXTENSION typedef struct _jl_genericmemory_t {
 #endif
 } jl_genericmemory_t;
 
+// Special type annotation for fields containing hidden pointers
+typedef void * jl_hidden_ptr_ptr_or_offset_t;
+
 JL_EXTENSION typedef struct {
     JL_DATA_TYPE
-    void *ptr_or_offset;
+    jl_hidden_ptr_ptr_or_offset_t ptr_or_offset;
     jl_genericmemory_t *mem;
 } jl_genericmemoryref_t;
 
@@ -563,6 +566,7 @@ typedef struct {
     _Atomic(uint8_t) cache_entry_count; // (approximate counter of TypeMapEntry for heuristics)
     uint8_t max_methods; // override for inference's max_methods setting (0 = no additional limit or relaxation)
     uint8_t constprop_heustic; // override for inference's constprop heuristic
+    const uint32_t *hiddenptrfields; // if any fields are hidden pointers, we record them here
 } jl_typename_t;
 
 typedef struct {
@@ -593,8 +597,10 @@ typedef struct {
 typedef struct {
     uint32_t size;
     uint32_t nfields;
-    uint32_t npointers; // number of pointers embedded inside
-    int32_t first_ptr; // index of the first pointer (or -1)
+    uint32_t npointers; // number of direct object pointers
+    uint32_t nhidden_pointers; // number of hidden/internal pointers
+    int32_t first_ptr; // index of the first direct pointer (or -1)
+    int32_t first_hidden_ptr; // index of the first hidden pointer (or -1)
     uint16_t alignment; // strictest alignment over all fields
     struct { // combine these fields into a struct so that we can take addressof them
         uint16_t haspadding : 1; // has internal undefined bytes
@@ -618,6 +624,11 @@ typedef struct {
     //     uint8_t ptr8[npointers];
     //     uint16_t ptr16[npointers];
     //     uint32_t ptr32[npointers];
+    // };
+    // union { // offsets relative to data start in words
+    //     uint8_t ptr8[nhidden_pointers];
+    //     uint16_t ptr16[nhidden_pointers];
+    //     uint32_t ptr32[nhidden_pointers];
     // };
 } jl_datatype_layout_t;
 
@@ -1743,6 +1754,34 @@ static inline uint32_t jl_ptr_offset(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
     }
 }
 
+// Access functions for hidden pointer descriptors
+static inline const char *jl_dt_layout_hidden_ptrs(const jl_datatype_layout_t *l) JL_NOTSAFEPOINT
+{
+    const char *ptrs = jl_dt_layout_ptrs(l);
+    size_t direct_ptrs_size = l->first_ptr < 0 ? 0 : (l->npointers << l->flags.fielddesc_type);
+    return ptrs + direct_ptrs_size;
+}
+
+static inline uint32_t jl_hidden_ptr_offset(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
+{
+    const jl_datatype_layout_t *ly = st->layout;
+    assert(i >= 0 && (size_t)i < ly->nhidden_pointers);
+    const void *hidden_ptrs = jl_dt_layout_hidden_ptrs(ly);
+
+    if (ly->flags.fielddesc_type == 0) {
+        return ((const uint8_t*)hidden_ptrs)[i];
+    }
+    else if (ly->flags.fielddesc_type == 1) {
+        return ((const uint16_t*)hidden_ptrs)[i];
+    }
+    else {
+        assert(ly->flags.fielddesc_type == 2);
+        return ((const uint32_t*)hidden_ptrs)[i];
+    }
+}
+
+
+
 static inline int jl_field_isatomic(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
 {
     const uint32_t *atomicfields = st->name->atomicfields;
@@ -1765,6 +1804,17 @@ static inline int jl_field_isconst(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
     }
     return 0;
 }
+
+static inline int jl_field_ishiddenptr(jl_datatype_t *st, int i) JL_NOTSAFEPOINT
+{
+    const uint32_t *hiddenptrfields = st->name->hiddenptrfields;
+    if (hiddenptrfields != NULL) {
+        if (hiddenptrfields[i / 32] & (1 << (i % 32)))
+            return 1;
+    }
+    return 0;
+}
+
 
 
 // basic predicates -----------------------------------------------------------
@@ -2071,6 +2121,16 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(jl_sym_t *name,
                                             jl_svec_t *fattrs,
                                             int abstract, int mutabl,
                                             int ninitialized);
+JL_DLLEXPORT jl_datatype_t *jl_new_datatype_with_hiddenptrs(jl_sym_t *name,
+                                            jl_module_t *module,
+                                            jl_datatype_t *super,
+                                            jl_svec_t *parameters,
+                                            jl_svec_t *fnames,
+                                            jl_svec_t *ftypes,
+                                            jl_svec_t *fattrs,
+                                            int abstract, int mutabl,
+                                            int ninitialized,
+                                            uint32_t* hiddenptrfields);
 JL_DLLEXPORT jl_datatype_t *jl_new_primitivetype(jl_value_t *name,
                                                  jl_module_t *module,
                                                  jl_datatype_t *super,

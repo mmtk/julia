@@ -3004,19 +3004,20 @@ void jl_init_types(void) JL_GC_DISABLED
     jl_typename_type->name->wrapper = (jl_value_t*)jl_typename_type;
     jl_typename_type->super = jl_any_type;
     jl_typename_type->parameters = jl_emptysvec;
-    jl_typename_type->name->n_uninitialized = 18 - 2;
-    jl_typename_type->name->names = jl_perm_symsvec(18, "name", "module", "singletonname",
+    jl_typename_type->name->n_uninitialized = 19 - 2;
+    jl_typename_type->name->names = jl_perm_symsvec(19, "name", "module", "singletonname",
                                                     "names", "atomicfields", "constfields",
                                                     "wrapper", "Typeofwrapper", "cache", "linearcache",
                                                     "partial", "hash", "max_args", "n_uninitialized",
                                                     "flags", // "abstract", "mutable", "mayinlinealloc",
-                                                    "cache_entry_count", "max_methods", "constprop_heuristic");
+                                                    "cache_entry_count", "max_methods", "constprop_heuristic",
+                                                    "hiddenptrfields");
     const static uint32_t typename_constfields[1]  = { 0b000110100001001011 }; // TODO: put back atomicfields and constfields in this list
     const static uint32_t typename_atomicfields[1] = { 0b001001001110000000 };
     jl_typename_type->name->constfields = typename_constfields;
     jl_typename_type->name->atomicfields = typename_atomicfields;
     jl_precompute_memoized_dt(jl_typename_type, 1);
-    jl_typename_type->types = jl_svec(18, jl_symbol_type, jl_any_type /*jl_module_type*/, jl_symbol_type,
+    jl_typename_type->types = jl_svec(19, jl_symbol_type, jl_any_type /*jl_module_type*/, jl_symbol_type,
                                       jl_simplevector_type,
                                       jl_any_type/*jl_voidpointer_type*/, jl_any_type/*jl_voidpointer_type*/,
                                       jl_type_type, jl_simplevector_type, jl_simplevector_type,
@@ -3027,7 +3028,8 @@ void jl_init_types(void) JL_GC_DISABLED
                                       jl_any_type /*jl_uint8_type*/,
                                       jl_any_type /*jl_uint8_type*/,
                                       jl_any_type /*jl_uint8_type*/,
-                                      jl_any_type /*jl_uint8_type*/);
+                                      jl_any_type /*jl_uint8_type*/,
+                                      jl_any_type/*jl_voidpointer_type*/);
 
     jl_methcache_type->name = jl_new_typename_in(jl_symbol("MethodCache"), core, 0, 1);
     jl_methcache_type->name->wrapper = (jl_value_t*)jl_methcache_type;
@@ -3336,11 +3338,12 @@ void jl_init_types(void) JL_GC_DISABLED
     memory_datatype->ismutationfree = 0;
 
     jl_datatype_t *jl_memoryref_supertype = (jl_datatype_t*)jl_apply_type1((jl_value_t*)jl_ref_type, jl_svecref(tv, 1));
+    const static uint32_t memoryref_hiddenptrfields[1] = { 0x00000001 }; // (1<<0) - field 0 is a hidden pointer
     jl_datatype_t *memoryref_datatype =
-        jl_new_datatype(jl_symbol("GenericMemoryRef"), core, jl_memoryref_supertype, tv,
+        jl_new_datatype_with_hiddenptrs(jl_symbol("GenericMemoryRef"), core, jl_memoryref_supertype, tv,
                         jl_perm_symsvec(2, "ptr_or_offset", "mem"),
                         jl_svec(2, pointer_void, memory_datatype),
-                        jl_emptysvec, 0, 0, 2);
+                        jl_emptysvec, 0, 0, 2, memoryref_hiddenptrfields);
     jl_genericmemoryref_typename = memoryref_datatype->name;
     jl_genericmemoryref_type = (jl_unionall_t*)jl_genericmemoryref_typename->wrapper;
     memoryref_datatype->ismutationfree = 0;
@@ -3853,6 +3856,7 @@ void jl_init_types(void) JL_GC_DISABLED
     jl_svecset(jl_typename_type->types, 15, jl_uint8_type);
     jl_svecset(jl_typename_type->types, 16, jl_uint8_type);
     jl_svecset(jl_typename_type->types, 17, jl_uint8_type);
+    jl_svecset(jl_typename_type->types, 18, jl_voidpointer_type); // hiddenptrfields
     jl_svecset(jl_methcache_type->types, 2, jl_long_type); // voidpointer
     jl_svecset(jl_methcache_type->types, 3, jl_long_type); // uint32_t plus alignment
     jl_svecset(jl_methtable_type->types, 3, jl_module_type);
