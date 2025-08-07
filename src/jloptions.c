@@ -293,17 +293,9 @@ static const char opts[]  =
     "                                               information, see --bug-report=help.\n\n"
     " --heap-size-hint=<size>[<unit>]               Forces garbage collection if memory usage is higher\n"
     "                                               than the given value. The value may be specified as a\n"
-    "                                               number of bytes, optionally in units of: B, K (kibibytes),\n"
-    "                                               M (mebibytes), G (gibibytes), T (tebibytes), or % (percentage\n"
-    "                                               of physical memory).\n\n"
-    " --hard-heap-limit=<size>[<unit>]              Set a hard limit on the heap size: if we ever go above this\n"
-    "                                               limit, we will abort. The value may be specified as a\n"
-    "                                               number of bytes, optionally in units of: B, K (kibibytes),\n"
-    "                                               M (mebibytes), G (gibibytes) or T (tebibytes).\n\n"
-    " --heap-target-increment=<size>[<unit>] Set an upper bound on how much the heap target\n"
-    "                                               can increase between consecutive collections. The value may be\n"
-    "                                               specified as a number of bytes, optionally in units of: B,\n"
-    "                                               K (kibibytes), M (mebibytes), G (gibibytes) or T (tebibytes).\n\n"
+    "                                               number of bytes, optionally in units of: B,\n"
+    "                                               K (kibibytes), M (mebibytes), G (gibibytes),\n"
+    "                                               T (tebibytes), or % (percentage of physical memory).\n\n"
 ;
 
 static const char opts_hidden[]  =
