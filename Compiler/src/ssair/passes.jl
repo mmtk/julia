@@ -9,7 +9,9 @@ end
 function is_known_invoke_or_call(@nospecialize(x), @nospecialize(func), ir::Union{IRCode,IncrementalCompact})
     isinvoke = isexpr(x, :invoke)
     (isinvoke || isexpr(x, :call)) || return false
-    ft = argextype(x.args[isinvoke ? 2 : 1], ir)
+    narg = isinvoke ? 2 : 1
+    length(x.args) < narg && return false
+    ft = argextype(x.args[narg], ir)
     return singleton_type(ft) === func
 end
 
@@ -183,7 +185,7 @@ function find_def_for_use(
 end
 
 function collect_leaves(compact::IncrementalCompact, @nospecialize(val), @nospecialize(typeconstraint), 𝕃ₒ::AbstractLattice,
-                        predecessors = ((@nospecialize(def), compact::IncrementalCompact) -> isa(def, PhiNode) ? def.values : nothing))
+                        predecessors::Pre = ((@nospecialize(def), compact::IncrementalCompact) -> isa(def, PhiNode) ? def.values : nothing)) where {Pre}
     if isa(val, Union{OldSSAValue, SSAValue})
         val, typeconstraint = simple_walk_constraint(compact, val, typeconstraint)
     end
@@ -271,7 +273,7 @@ Starting at `val` walk use-def chains to get all the leaves feeding into this `v
 `predecessors(def, compact)` is a callback which should return the set of possible
 predecessors for a "phi-like" node (PhiNode or Core.ifelse) or `nothing` otherwise.
 """
-function walk_to_defs(compact::IncrementalCompact, @nospecialize(defssa), @nospecialize(typeconstraint), predecessors, 𝕃ₒ::AbstractLattice)
+function walk_to_defs(compact::IncrementalCompact, @nospecialize(defssa), @nospecialize(typeconstraint), predecessors::Pre, 𝕃ₒ::AbstractLattice) where {Pre}
     visited_philikes = AnySSAValue[]
     isa(defssa, AnySSAValue) || return Any[defssa], visited_philikes
     def = compact[defssa][:stmt]

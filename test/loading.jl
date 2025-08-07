@@ -1495,7 +1495,7 @@ end
 
         # helper function to load a package and return the output
         function load_package(name, args=``)
-            code = "using $name"
+            code = "Base.disable_parallel_precompile = true; using $name"
             cmd = addenv(`$(Base.julia_cmd()) -e $code $args`,
                         "JULIA_LOAD_PATH" => dir,
                         "JULIA_DEPOT_PATH" => depot_path,
@@ -1731,3 +1731,21 @@ end
         rm(depot_path, force=true, recursive=true)
     end
 end
+
+# Test `import Package as M`
+module M57965
+    import Random as R
+end
+@test M57965.R === Base.require(M57965, :Random)
+
+# #58272 - _eval_import accidentally reuses evaluated "from" path
+module M58272_1
+    const x = 1
+    module M58272_2
+        const y = 3
+        const x = 2
+    end
+end
+module M58272_to end
+@eval M58272_to import ..M58272_1: M58272_2.y, x
+@test @eval M58272_to x === 1

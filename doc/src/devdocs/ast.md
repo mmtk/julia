@@ -119,9 +119,17 @@ parses as `(macrocall (|.| Core '@doc) (line) "some docs" (= (call f x) (block x
 | `import Base: x`    | `(import (: (. Base) (. x)))`                |
 | `import Base: x, y` | `(import (: (. Base) (. x) (. y)))`          |
 | `export a, b`       | `(export a b)`                               |
+| `public a, b`       | `(public a b)`                               |
 
 `using` has the same representation as `import`, but with expression head `:using`
 instead of `:import`.
+
+To programmatically create a `public` statement, you can use `Expr(:public, :a, :b)` or,
+closer to regular code, `Meta.parse("public a, b")`. This approach is necessary due to
+[current limitations on `public`](@ref Export-lists). The `public` keyword is only
+recognized at the syntactic top level within a file (`parse_stmts`) or module. This
+restriction was implemented to prevent breaking existing code that used `public` as an
+identifier when it was introduced in Julia 1.11.
 
 ### Numbers
 
@@ -155,7 +163,7 @@ parses as:
 ```
 (if a (block (line 2) b)
     (elseif (block (line 3) c) (block (line 4) d)
-            (block (line 6 e))))
+            (block (line 6) e)))
 ```
 
 A `while` loop parses as `(while condition body)`.

@@ -824,21 +824,29 @@ int jl_gc_classify_pools(size_t sz, int *osize)
 
 // sweep phase
 
-gc_fragmentation_stat_t gc_page_fragmentation_stats[JL_GC_N_POOLS];
+JL_DLLEXPORT gc_fragmentation_stat_t jl_gc_page_fragmentation_stats[JL_GC_N_POOLS];
 JL_DLLEXPORT double jl_gc_page_utilization_stats[JL_GC_N_MAX_POOLS];
 JL_DLLEXPORT gc_fragmentation_stat_t jl_gc_page_fragmentation_stats_export[JL_GC_N_POOLS];
 
-STATIC_INLINE void gc_update_page_fragmentation_data(jl_gc_pagemeta_t *pg) JL_NOTSAFEPOINT
+STATIC_INLINE void gc_update_fragmentation_data_for_size_class(jl_gc_pagemeta_t *pg) JL_NOTSAFEPOINT
 {
-    gc_fragmentation_stat_t *stats = &gc_page_fragmentation_stats[pg->pool_n];
+    gc_fragmentation_stat_t *stats = &jl_gc_page_fragmentation_stats[pg->pool_n];
     jl_atomic_fetch_add_relaxed(&stats->n_freed_objs, pg->nfree);
     jl_atomic_fetch_add_relaxed(&stats->n_pages_allocd, 1);
 }
 
-STATIC_INLINE void gc_dump_page_utilization_data(void) JL_NOTSAFEPOINT
+STATIC_INLINE void gc_reset_fragmentation_data_for_size_classes(void) JL_NOTSAFEPOINT
 {
     for (int i = 0; i < JL_GC_N_POOLS; i++) {
-        gc_fragmentation_stat_t *stats = &gc_page_fragmentation_stats[i];
+        jl_atomic_store_relaxed(&jl_gc_page_fragmentation_stats[i].n_freed_objs, 0);
+        jl_atomic_store_relaxed(&jl_gc_page_fragmentation_stats[i].n_pages_allocd, 0);
+    }
+}
+
+STATIC_INLINE void gc_compute_utilization_data_for_size_classes(void) JL_NOTSAFEPOINT
+{
+    for (int i = 0; i < JL_GC_N_POOLS; i++) {
+        gc_fragmentation_stat_t *stats = &jl_gc_page_fragmentation_stats[i];
         double utilization = 1.0;
         size_t n_freed_objs = jl_atomic_load_relaxed(&stats->n_freed_objs);
         size_t n_pages_allocd = jl_atomic_load_relaxed(&stats->n_pages_allocd);
@@ -957,7 +965,7 @@ static void gc_sweep_page(gc_page_profiler_serializer_t *s, jl_gc_pool_t *p, jl_
 
 done:
     if (re_use_page) {
-        gc_update_page_fragmentation_data(pg);
+        gc_update_fragmentation_data_for_size_class(pg);
         push_lf_back(allocd, pg);
     }
     else {
@@ -1397,6 +1405,7 @@ static void gc_sweep_pool(void)
         // the actual sweeping
         jl_gc_padded_page_stack_t *new_gc_allocd_scratch = (jl_gc_padded_page_stack_t *) calloc_s(n_threads * sizeof(jl_gc_padded_page_stack_t));
         jl_ptls_t ptls = jl_current_task->ptls;
+        gc_reset_fragmentation_data_for_size_classes();
         gc_sweep_wake_all_pages(ptls, new_gc_allocd_scratch);
         gc_sweep_pool_parallel(ptls);
         gc_sweep_wait_for_all_pages();
@@ -1464,7 +1473,7 @@ static void gc_sweep_pool(void)
 #else
     gc_free_pages();
 #endif
-    gc_dump_page_utilization_data();
+    gc_compute_utilization_data_for_size_classes();
     gc_time_pool_end(current_sweep_full);
 }
 
@@ -2775,7 +2784,7 @@ void gc_mark_clean_reclaim_sets(void)
     }
 }
 
-static void gc_queue_thread_local(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
+static void gc_queue_thread_local(jl_gc_markqueue_t *mq, jl_ptls_t ptls2) JL_NOTSAFEPOINT
 {
     jl_task_t *task;
     task = ptls2->root_task;
@@ -2804,7 +2813,7 @@ static void gc_queue_thread_local(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
     }
 }
 
-static void gc_queue_bt_buf(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
+static void gc_queue_bt_buf(jl_gc_markqueue_t *mq, jl_ptls_t ptls2) JL_NOTSAFEPOINT
 {
     jl_bt_element_t *bt_data = ptls2->bt_data;
     size_t bt_size = ptls2->bt_size;
@@ -2818,7 +2827,7 @@ static void gc_queue_bt_buf(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
     }
 }
 
-static void gc_queue_remset(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
+static void gc_queue_remset(jl_gc_markqueue_t *mq, jl_ptls_t ptls2) JL_NOTSAFEPOINT
 {
     void **items = ptls2->gc_tls.heap.remset.items;
     size_t len = ptls2->gc_tls.heap.remset.len;
@@ -2833,7 +2842,7 @@ static void gc_queue_remset(jl_gc_markqueue_t *mq, jl_ptls_t ptls2)
     ptls2->gc_tls.heap.remset_nptr = 0;
 }
 
-static void gc_check_all_remsets_are_empty(void)
+static void gc_check_all_remsets_are_empty(void) JL_NOTSAFEPOINT
 {
     for (int i = 0; i < gc_n_threads; i++) {
         jl_ptls_t ptls2 = gc_all_tls_states[i];
@@ -2848,12 +2857,14 @@ extern jl_value_t *cmpswap_names JL_GLOBALLY_ROOTED;
 extern jl_task_t *wait_empty JL_GLOBALLY_ROOTED;
 
 // mark the initial root set
-static void gc_mark_roots(jl_gc_markqueue_t *mq)
+static void gc_mark_roots(jl_gc_markqueue_t *mq) JL_NOTSAFEPOINT
 {
     // modules
     gc_try_claim_and_push(mq, jl_main_module, NULL);
     gc_heap_snapshot_record_gc_roots((jl_value_t*)jl_main_module, "main_module");
     // invisible builtin values
+    gc_try_claim_and_push(mq, jl_method_table, NULL);
+    gc_heap_snapshot_record_gc_roots((jl_value_t*)jl_method_table, "global_method_table");
     gc_try_claim_and_push(mq, jl_an_empty_vec_any, NULL);
     gc_heap_snapshot_record_gc_roots((jl_value_t*)jl_an_empty_vec_any, "an_empty_vec_any");
     gc_try_claim_and_push(mq, jl_module_init_order, NULL);
@@ -3030,7 +3041,7 @@ static uint64_t overallocation(uint64_t old_val, uint64_t val, uint64_t max_val)
 size_t jl_maxrss(void);
 
 // Only one thread should be running in this function
-static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
+static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection) JL_NOTSAFEPOINT
 {
     combine_thread_gc_counts(&gc_num, 1);
 
@@ -3155,7 +3166,7 @@ static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
     // If the live data outgrows the suggested max_total_memory
     // we keep going with minimum intervals and full gcs until
     // we either free some space or get an OOM error.
-    if (gc_sweep_always_full) {
+    if (jl_options.gc_sweep_always_full) {
         sweep_full = 1;
         gc_count_full_sweep_reason(FULL_SWEEP_REASON_SWEEP_ALWAYS_FULL);
     }

@@ -46,8 +46,7 @@ has_fma = Dict(
         @test clamp(100, Int8) === Int8(100)
         @test clamp(200, Int8) === typemax(Int8)
 
-        begin
-            x = [0.0, 1.0, 2.0, 3.0, 4.0]
+        let x = [0.0, 1.0, 2.0, 3.0, 4.0]
             clamp!(x, 1, 3)
             @test x == [1.0, 1.0, 2.0, 3.0, 3.0]
         end
@@ -59,12 +58,14 @@ has_fma = Dict(
         @test clamp(typemax(UInt16), Int16) === Int16(32767)
 
         # clamp should not allocate a BigInt for typemax(Int16)
-        x = big(2) ^ 100
-        @test (@allocated clamp(x, Int16)) == 0
+        let x = big(2) ^ 100
+            @test (@allocated clamp(x, Int16)) == 0
+        end
 
-        x = clamp(2.0, BigInt)
-        @test x isa BigInt
-        @test x == big(2)
+        let x = clamp(2.0, BigInt)
+            @test x isa BigInt
+            @test x == big(2)
+        end
     end
 end
 
@@ -447,13 +448,23 @@ end
 end
 
 @testset "deg2rad/rad2deg" begin
-    @testset "$T" for T in (Int, Float64, BigFloat)
+    @testset "$T" for T in (Int, Float16, Float32, Float64, BigFloat)
         @test deg2rad(T(180)) ≈ 1pi
         @test deg2rad.(T[45, 60]) ≈ [pi/T(4), pi/T(3)]
         @test rad2deg.([pi/T(4), pi/T(3)]) ≈ [45, 60]
         @test rad2deg(T(1)*pi) ≈ 180
         @test rad2deg(T(1)) ≈ rad2deg(true)
         @test deg2rad(T(1)) ≈ deg2rad(true)
+    end
+    @testset "accuracy" begin
+        @testset "$T" for T in (Float16, Float32, Float64)
+            @test rad2deg(T(1)) === setprecision(BigFloat, 500) do
+                T(180 / BigFloat(pi))
+            end
+            @test deg2rad(T(1)) === setprecision(BigFloat, 500) do
+                T(BigFloat(pi) / 180)
+            end
+        end
     end
     @test deg2rad(180 + 60im) ≈ pi + (pi/3)*im
     @test rad2deg(pi + (pi/3)*im) ≈ 180 + 60im

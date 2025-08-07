@@ -21,6 +21,7 @@ typedef struct {
     int32_t nprocs;
     const char *machine_file;
     const char *project;
+    const char *program_file;
     int8_t isinteractive;
     int8_t color;
     int8_t historyfile;
@@ -69,6 +70,7 @@ typedef struct {
     int8_t trim;
     int8_t task_metrics;
     int16_t timeout_for_safepoint_straggler_s;
+    int8_t gc_sweep_always_full;
 } jl_options_t;
 
 #endif

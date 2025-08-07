@@ -107,6 +107,7 @@ JL_DLLEXPORT void jl_init_options(void)
                         0,    // nprocs
                         NULL, // machine_file
                         NULL, // project
+                        NULL, // program_file
                         0,    // isinteractive
                         0,    // color
                         JL_OPTIONS_HISTORYFILE_ON, // history file
@@ -159,6 +160,7 @@ JL_DLLEXPORT void jl_init_options(void)
                         JL_TRIM_NO, // trim
                         0, // task_metrics
                         -1, // timeout_for_safepoint_straggler_s
+                        0, // gc_sweep_always_full
     };
     jl_options_initialized = 1;
 }
@@ -174,11 +176,13 @@ static const char opts[]  =
     " --help-hidden                                 Print uncommon options not shown by `-h`\n\n"
 
     // startup options
-    " --project[={<dir>|@temp|@.}]                  Set <dir> as the active project/environment.\n"
+    " --project[={<dir>|@temp|@.|@script[<rel>]}]   Set <dir> as the active project/environment.\n"
     "                                               Or, create a temporary environment with `@temp`\n"
     "                                               The default @. option will search through parent\n"
     "                                               directories until a Project.toml or JuliaProject.toml\n"
-    "                                               file is found.\n"
+    "                                               file is found. @script is similar, but searches up\n"
+    "                                               from the programfile or a path relative to\n"
+    "                                               programfile.\n"
     " -J, --sysimage <file>                         Start up with the given system image file\n"
     " -H, --home <dir>                              Set location of `julia` executable\n"
     " --startup-file={yes*|no}                      Load `JULIA_DEPOT_PATH/config/startup.jl`; \n"
@@ -325,24 +329,38 @@ static const char opts_hidden[]  =
     " --output-asm <name>                           Generate an assembly file (.s)\n"
     " --output-incremental={yes|no*}                Generate an incremental output file (rather than\n"
     "                                               complete)\n"
-    " --timeout-for-safepoint-straggler <seconds>   If this value is set, then we will dump the backtrace for a thread\n"
-    "                                               that fails to reach a safepoint within the specified time\n"
+    " --timeout-for-safepoint-straggler <seconds>   If this value is set, then we will dump the backtrace\n"
+    "                                               for a thread that fails to reach a safepoint within\n"
+    "                                               the specified time\n"
     " --trace-compile={stderr|name}                 Print precompile statements for methods compiled\n"
-    "                                               during execution or save to stderr or a path. Methods that\n"
-    "                                               were recompiled are printed in yellow or with a trailing\n"
-    "                                               comment if color is not supported\n"
-    " --trace-compile-timing                        If --trace-compile is enabled show how long each took to\n"
-    "                                               compile in ms\n"
+    "                                               during execution or save to stderr or a path. Methods\n"
+    "                                               that were recompiled are printed in yellow or with\n"
+    "                                               a trailing comment if color is not supported\n"
+    " --trace-compile-timing                        If --trace-compile is enabled show how long each took\n"
+    "                                               to compile in ms\n"
     " --task-metrics={yes|no*}                      Enable collection of per-task timing data.\n"
     " --image-codegen                               Force generate code in imaging mode\n"
-    " --permalloc-pkgimg={yes|no*}                  Copy the data section of package images into memory\n"
-    " --trim={no*|safe|unsafe|unsafe-warn}\n"
-    "                                               Build a sysimage including only code provably reachable\n"
-    "                                               from methods marked by calling `entrypoint`. In unsafe\n"
-    "                                               mode, the resulting binary might be missing needed code\n"
-    "                                               and can throw errors. With unsafe-warn warnings will be\n"
-    "                                               printed for dynamic call sites that might lead to such\n"
-    "                                               errors. In safe mode compile-time errors are given instead.\n"
+    " --permalloc-pkgimg={yes|no*}                  Copy the data section of package images into memory\n\n"
+
+    " --trim={no*|safe|unsafe|unsafe-warn}          Build a sysimage including only code provably\n"
+    "                                               reachable from methods marked by calling\n"
+    "                                               `entrypoint`. In unsafe mode, the resulting binary\n"
+    "                                               might be missing needed code and can throw errors.\n"
+    "                                               With unsafe-warn warnings will be printed for\n"
+    "                                               dynamic call sites that might lead to such errors.\n"
+    "                                               In safe mode compile-time errors are given instead.\n"
+    " --hard-heap-limit=<size>[<unit>]              Set a hard limit on the heap size: if we ever\n"
+    "                                               go above this limit, we will abort. The value\n"
+    "                                               may be specified as a number of bytes,\n"
+    "                                               optionally in units of: B, K (kibibytes),\n"
+    "                                               M (mebibytes), G (gibibytes) or T (tebibytes).\n"
+    " --heap-target-increment=<size>[<unit>]        Set an upper bound on how much the heap\n"
+    "                                               target can increase between consecutive\n"
+    "                                               collections. The value may be specified as\n"
+    "                                               a number of bytes, optionally in units of:\n"
+    "                                               B, K (kibibytes), M (mebibytes), G (gibibytes)\n"
+    "                                               or T (tebibytes).\n"
+    " --gc-sweep-always-full                        Makes the GC always do a full sweep of the heap\n"
 ;
 
 JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp)
@@ -393,6 +411,7 @@ JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp)
            opt_heap_size_hint,
            opt_hard_heap_limit,
            opt_heap_target_increment,
+           opt_gc_sweep_always_full,
            opt_gc_threads,
            opt_permalloc_pkgimg,
            opt_trim,
@@ -466,6 +485,7 @@ JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp)
         { "heap-size-hint",  required_argument, 0, opt_heap_size_hint },
         { "hard-heap-limit", required_argument, 0, opt_hard_heap_limit },
         { "heap-target-increment", required_argument, 0, opt_heap_target_increment },
+        { "gc-sweep-always-full", no_argument, 0, opt_gc_sweep_always_full },
         { "trim",  optional_argument, 0, opt_trim },
         { 0, 0, 0, 0 }
     };
@@ -604,12 +624,19 @@ restart_switch:
             jl_options.use_experimental_features = JL_OPTIONS_USE_EXPERIMENTAL_FEATURES_YES;
             break;
         case opt_sysimage_native_code:
-            if (!strcmp(optarg,"yes"))
+            if (!strcmp(optarg,"yes")) {
                 jl_options.use_sysimage_native_code = JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_YES;
-            else if (!strcmp(optarg,"no"))
+            }
+            else if (!strcmp(optarg,"no")) {
                 jl_options.use_sysimage_native_code = JL_OPTIONS_USE_SYSIMAGE_NATIVE_CODE_NO;
-            else
+                if (jl_options.depwarn == JL_OPTIONS_DEPWARN_ERROR)
+                    jl_errorf("julia: --sysimage-native-code=no is deprecated");
+                else if (jl_options.depwarn == JL_OPTIONS_DEPWARN_ON)
+                    jl_printf(JL_STDERR, "WARNING: --sysimage-native-code=no is deprecated\n");
+            }
+            else {
                 jl_errorf("julia: invalid argument to --sysimage-native-code={yes|no} (%s)", optarg);
+            }
             break;
         case opt_compiled_modules:
             if (!strcmp(optarg,"yes"))
@@ -677,6 +704,9 @@ restart_switch:
                         if (nthreadsi == 0)
                             jl_options.nthreadpools = 1;
                     }
+                } else if (nthreads == 1) { // User asked for 1 thread so don't add an interactive one
+                    jl_options.nthreadpools = 1;
+                    nthreadsi = 0;
                 }
                 jl_options.nthreads = nthreads + nthreadsi;
             }
@@ -1016,6 +1046,9 @@ restart_switch:
                 jl_errorf("julia: --timeout-for-safepoint-straggler=<seconds>; seconds must be an integer between 1 and %d", INT16_MAX);
             jl_options.timeout_for_safepoint_straggler_s = (int16_t)timeout;
             break;
+        case opt_gc_sweep_always_full:
+            jl_options.gc_sweep_always_full = 1;
+            break;
         case opt_trim:
             if (optarg == NULL || !strcmp(optarg,"safe"))
                 jl_options.trim = JL_TRIM_SAFE;
@@ -1041,6 +1074,7 @@ restart_switch:
                       "This is a bug, please report it.", c);
         }
     }
+    jl_options.program_file = optind < argc ? strdup(argv[optind]) : "";
     parsing_args_done:
     if (!jl_options.use_experimental_features) {
         if (jl_options.trim != JL_TRIM_NO)

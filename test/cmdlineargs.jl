@@ -130,9 +130,6 @@ end
                             ("--startup-file=no",   false),
                             ("--startup-file=yes",  true),
 
-                            # ("--sysimage-native-code=no",   false), # takes a lot longer (30s)
-                            ("--sysimage-native-code=yes",  true),
-
                             ("--pkgimages=yes", true),
                             ("--pkgimages=no",  false),
                         )
@@ -243,6 +240,10 @@ let exename = `$(Base.julia_cmd()) --startup-file=no --color=no`
         @test startswith(read(`$exename --help`, String), header)
     end
 
+    # Test to make sure that command line --help and --help-hidden do not return a description which is more than 100 characters wide
+    @test isempty(filter(x->length(x) > 100, readlines(`$exename -h`)))
+    @test isempty(filter(x->length(x) > 100, readlines(`$exename --help-hidden`)))
+
     # ~ expansion in --project and JULIA_PROJECT
     if !Sys.iswindows()
         let expanded = abspath(expanduser("~/foo/Project.toml"))
@@ -255,6 +256,16 @@ let exename = `$(Base.julia_cmd()) --startup-file=no --color=no`
     let expanded = abspath(Base.load_path_expand("@foo"))
         @test expanded == readchomp(`$exename --project='@foo' -e 'println(Base.active_project())'`)
         @test expanded == readchomp(addenv(`$exename -e 'println(Base.active_project())'`, "JULIA_PROJECT" => "@foo", "HOME" => homedir()))
+    end
+
+    # --project=@script handling
+    let expanded = abspath(joinpath(@__DIR__, "project", "ScriptProject"))
+        script = joinpath(expanded, "bin", "script.jl")
+        # Check running julia with --project=@script both within and outside the script directory
+        @testset "--@script from $name" for (name, dir) in [("project", expanded), ("outside", pwd())]
+            @test joinpath(expanded, "Project.toml") == readchomp(Cmd(`$exename --project=@script $script`; dir))
+            @test joinpath(expanded, "SubProject", "Project.toml") == readchomp(Cmd(`$exename --project=@script/../SubProject $script`; dir))
+        end
     end
 
     # handling of `@temp` in --project and JULIA_PROJECT
@@ -341,6 +352,7 @@ let exename = `$(Base.julia_cmd()) --startup-file=no --color=no`
 
     # -t, --threads
     code = "print(Threads.threadpoolsize())"
+    code2 = "print(Threads.maxthreadid())"
     cpu_threads = ccall(:jl_effective_threads, Int32, ())
     @test string(cpu_threads) ==
         read(`$exename --threads auto -e $code`, String) ==
@@ -351,6 +363,11 @@ let exename = `$(Base.julia_cmd()) --startup-file=no --color=no`
         withenv("JULIA_NUM_THREADS" => nt) do
             @test read(`$exename --threads=2 -e $code`, String) ==
                 read(`$exename -t 2 -e $code`, String) == "2"
+            if nt === nothing
+                @test read(`$exename -e $code2`, String) == "2" #default + interactive
+            elseif nt == "1"
+                @test read(`$exename -e $code2`, String) == "1" #if user asks for 1 give 1
+            end
         end
     end
     # We want to test oversubscription, but on manycore machines, this can
@@ -1011,6 +1028,14 @@ end
         @test v[2] == ""
         @test contains(v[3], "More than one command line CPU targets specified")
     end
+
+    # Testing this more precisely would be very platform and build system dependent and brittle.
+    withenv("JULIA_CPU_TARGET" => "sysimage") do
+        v = readchomp(`$julia_path -E "Sys.sysimage_target()"`)
+        # Local builds will likely be "native" but CI shouldn't be.
+        invalid_results = Base.get_bool_env("CI", false) ? ("", "native", "sysimage") : ("", "sysimage",)
+        @test !in(v, invalid_results)
+    end
 end
 
 # Find the path of libjulia (or libjulia-debug, as the case may be)
@@ -1076,22 +1101,12 @@ run(pipeline(devnull, `$(joinpath(Sys.BINDIR, Base.julia_exename())) --lisp`, de
 @test readchomperrors(`$(joinpath(Sys.BINDIR, Base.julia_exename())) -Cnative --lisp`) ==
     (false, "", "ERROR: --lisp must be specified as the first argument")
 
-# --sysimage-native-code={yes|no}
-let exename = `$(Base.julia_cmd()) --startup-file=no`
-    @test readchomp(`$exename --sysimage-native-code=yes -E
-        "Bool(Base.JLOptions().use_sysimage_native_code)"`) == "true"
-    # TODO: Make this safe in the presence of two single-thread threadpools
-    # see https://github.com/JuliaLang/julia/issues/57198
-    @test readchomp(`$exename --sysimage-native-code=no -t1,0 -E
-        "Bool(Base.JLOptions().use_sysimage_native_code)"`) == "false"
-end
-
 # backtrace contains line number info (esp. on windows #17179)
-for precomp in ("yes", "no")
-    # TODO: Make this safe in the presence of two single-thread threadpools
+let
+    # TODO: Make this safe in the presence of two single-thread threadpools with
+    # --sysimage-native-code=no, though that option is deprecated.
     # see https://github.com/JuliaLang/julia/issues/57198
-    threads = precomp == "no" ? `-t1,0` : ``
-    succ, out, bt = readchomperrors(`$(Base.julia_cmd()) $threads --startup-file=no --sysimage-native-code=$precomp -E 'sqrt(-2)'`)
+    succ, out, bt = readchomperrors(`$(Base.julia_cmd()) --startup-file=no -E 'sqrt(-2)'`)
     @test !succ
     @test out == ""
     @test occursin(r"\.jl:(\d+)", bt)
@@ -1327,3 +1342,16 @@ end
     timeout = 120
     @test parse(Int,read(`$exename --timeout-for-safepoint-straggler=$timeout -E "Base.JLOptions().timeout_for_safepoint_straggler_s"`, String)) == timeout
 end
+
+@testset "--strip-metadata" begin
+    mktempdir() do dir
+        @test success(pipeline(`$(Base.julia_cmd()) --strip-metadata -t1,0 --output-o $(dir)/sys.o.a -e 0`, stderr=stderr, stdout=stdout))
+        if isfile(joinpath(dir, "sys.o.a"))
+            Base.Linking.link_image(joinpath(dir, "sys.o.a"), joinpath(dir, "sys.so"))
+            @test readchomp(`$(Base.julia_cmd()) -t1,0 -J $(dir)/sys.so -E 'hasmethod(sort, (Vector{Int},), (:dims,))'`) == "true"
+        end
+    end
+end
+
+# https://github.com/JuliaLang/julia/issues/58229 Recursion in jitlinking with inline=no
+@test success(`$(Base.julia_cmd()) --inline=no -e 'Base.compilecache(Base.identify_package("Pkg"))'`)
