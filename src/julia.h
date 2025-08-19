@@ -1416,6 +1416,8 @@ typedef bool (*check_alive_fn_type)(void *);
 JL_DLLEXPORT void jl_set_check_alive_type(check_alive_fn_type fn);
 JL_DLLEXPORT void jl_log_pinning_event(void *pinned_object, const char *filename, int lineno);
 JL_DLLEXPORT void jl_print_pinning_log(void);
+JL_DLLEXPORT void jl_dump_all_pinned_objects(arraylist_t *objects);
+JL_DLLEXPORT void jl_dump_all_tpinned_objects(arraylist_t *objects);
 
 #define ENABLE_PINNING_LOGGING
 #ifdef ENABLE_PINNING_LOGGING

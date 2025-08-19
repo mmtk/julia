@@ -201,6 +201,7 @@ const _DOCS_ALIASING_WARNING = """
 """
 
 include("ctypes.jl")
+include("gc-explicit-pinning.jl")
 include("gcutils.jl")
 include("generator.jl")
 include("runtime_internals.jl")

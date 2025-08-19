@@ -770,9 +770,12 @@ void trace_partial_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* b
 JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
 {
 
-    // Create a new buf
+    // Create a new buf for roots and nodes that have been pinned through the FFI functions
     RootsWorkBuffer buf = (closure->report_nodes_func)((void**)0, 0, 0, closure->data, true);
     size_t len = 0;
+    // Create a new buf for nodes that have been transitively pinned through the FFI functions
+    RootsWorkBuffer tpin_buf = (closure->report_tpinned_nodes_func)((void**)0, 0, 0, closure->data, true);
+    size_t tpin_len = 0;
 
     // globally rooted
     trace_full_globally_rooted(closure, &buf, &len);
@@ -819,6 +822,24 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
         }
     }
 
+    // Trace pinned and transitively pinned objects
+    arraylist_t all_pinned_objects;
+    arraylist_t all_tpinned_objects;
+    arraylist_new(&all_pinned_objects, 0);
+    arraylist_new(&all_tpinned_objects, 0);
+    jl_dump_all_pinned_objects(&all_pinned_objects);
+    jl_dump_all_tpinned_objects(&all_tpinned_objects);
+    for (size_t i = 0; i < all_pinned_objects.len; i++) {
+        void *obj = all_pinned_objects.items[i];
+        add_node_to_roots_buffer(closure, &buf, &len, obj);
+    }
+    for (size_t i = 0; i < all_tpinned_objects.len; i++) {
+        void *obj = all_tpinned_objects.items[i];
+        add_node_to_roots_buffer(closure, &tpin_buf, &tpin_len, obj);
+    }
+    arraylist_free(&all_pinned_objects);
+    arraylist_free(&all_tpinned_objects);
+
     // // add module
     // add_node_to_roots_buffer(closure, &buf, &len, jl_main_module);
 
@@ -844,6 +865,8 @@ JL_DLLEXPORT void jl_gc_scan_vm_specific_roots(RootsWorkClosure* closure)
 
     // Push the result of the work.
     (closure->report_nodes_func)(buf.ptr, len, buf.cap, closure->data, false);
+    // Push the result of the transitively pinned work.
+    (closure->report_tpinned_nodes_func)(tpin_buf.ptr, tpin_len, tpin_buf.cap, closure->data, false);
 }
 
 JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, ProcessSlotFn process_slot) {
