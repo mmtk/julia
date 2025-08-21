@@ -60,24 +60,32 @@ iolock_end() = ccall(:jl_iolock_end, Cvoid, ())
 const uvhandles = IdDict()
 const preserve_handle_lock = Threads.SpinLock()
 @nospecializeinfer function preserve_handle(@nospecialize(x))
-    lock(preserve_handle_lock)
-    v = get(uvhandles, x, 0)::Int
-    uvhandles[x] = v + 1
-    unlock(preserve_handle_lock)
+    @static if Base.USING_STOCK_GC
+        lock(preserve_handle_lock)
+        v = get(uvhandles, x, 0)::Int
+        uvhandles[x] = v + 1
+        unlock(preserve_handle_lock)
+    else
+        Base.increment_tpin_count!(x)
+    end
     nothing
 end
 @nospecializeinfer function unpreserve_handle(@nospecialize(x))
-    lock(preserve_handle_lock)
-    v = get(uvhandles, x, 0)::Int
-    if v == 0
+    @static if Base.USING_STOCK_GC
+        lock(preserve_handle_lock)
+        v = get(uvhandles, x, 0)::Int
+        if v == 0
+            unlock(preserve_handle_lock)
+            error("unbalanced call to unpreserve_handle for $(typeof(x))")
+        elseif v == 1
+            pop!(uvhandles, x)
+        else
+            uvhandles[x] = v - 1
+        end
         unlock(preserve_handle_lock)
-        error("unbalanced call to unpreserve_handle for $(typeof(x))")
-    elseif v == 1
-        pop!(uvhandles, x)
     else
-        uvhandles[x] = v - 1
+        Base.decrement_tpin_count!(x)
     end
-    unlock(preserve_handle_lock)
     nothing
 end
 
