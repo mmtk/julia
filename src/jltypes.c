@@ -3337,7 +3337,7 @@ void jl_init_types(void) JL_GC_DISABLED
     memory_datatype->ismutationfree = 0;
 
     jl_datatype_t *jl_memoryref_supertype = (jl_datatype_t*)jl_apply_type1((jl_value_t*)jl_ref_type, jl_svecref(tv, 1));
-    const static uint32_t memoryref_hiddenptrfields[1] = { 0x00000001 }; // (1<<0) - field 0 is a hidden pointer
+    static uint32_t memoryref_hiddenptrfields[1] = { 0x00000001 }; // (1<<0) - field 0 is a hidden pointer
     jl_datatype_t *memoryref_datatype =
         jl_new_datatype_with_hiddenptrs(jl_symbol("GenericMemoryRef"), core, jl_memoryref_supertype, tv,
                         jl_perm_symsvec(2, "ptr_or_offset", "mem"),

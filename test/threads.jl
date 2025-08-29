@@ -304,7 +304,7 @@ close(proc.in)
         proc = run(cmd; wait = false)
         done = Threads.Atomic{Bool}(false)
         timeout = false
-        timer = Timer(200) do _
+        timer = Timer(300) do _
             timeout = true
             for sig in (Base.SIGQUIT, Base.SIGKILL)
                 for _ in 1:3

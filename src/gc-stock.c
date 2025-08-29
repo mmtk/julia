@@ -1078,11 +1078,35 @@ void sweep_stack_pool_loop(void) JL_NOTSAFEPOINT
             small_arraylist_free(ptls2->gc_tls_common.heap.free_stacks);
         }
 
-        small_arraylist_t *live_tasks = &ptls2->gc_tls_common.heap.live_tasks;
+        // sweep list of all tasks
+        small_arraylist_t *all_tasks = &ptls2->gc_tls_common.heap.all_tasks;
         size_t n = 0;
         size_t ndel = 0;
-        size_t l = live_tasks->len;
-        void **lst = live_tasks->items;
+        size_t l = all_tasks->len;
+        void **lst = all_tasks->items;
+        if (l != 0) {
+            while (1) {
+                jl_task_t *t = (jl_task_t*)lst[n];
+                assert(jl_is_task(t));
+                if (gc_marked(jl_astaggedvalue(t)->bits.gc)) {
+                    n++;
+                } else {
+                    ndel++;
+                }
+                if (n >= l - ndel)
+                    break;
+                void *tmp = lst[n];
+                lst[n] = lst[n + ndel];
+                lst[n + ndel] = tmp;
+            }
+            all_tasks->len -= ndel;
+        }
+
+        small_arraylist_t *live_tasks = &ptls2->gc_tls_common.heap.live_tasks;
+        n = 0;
+        ndel = 0;
+        l = live_tasks->len;
+        lst = live_tasks->items;
         if (l == 0)
             continue;
         while (1) {
@@ -3345,6 +3369,8 @@ static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
                 small_arraylist_free(&common_heap->weak_refs);
             if (common_heap->live_tasks.len == 0)
                 small_arraylist_free(&common_heap->live_tasks);
+            if (common_heap->all_tasks.len == 0)
+                small_arraylist_free(&common_heap->all_tasks);
             if (heap->remset.len == 0)
                 arraylist_free(&heap->remset);
             if (ptls2->finalizers.len == 0)
@@ -3545,6 +3571,7 @@ void jl_init_thread_heap(jl_ptls_t ptls)
     }
     small_arraylist_new(&common_heap->weak_refs, 0);
     small_arraylist_new(&common_heap->live_tasks, 0);
+    small_arraylist_new(&common_heap->all_tasks, 0);
     for (int i = 0; i < JL_N_STACK_POOLS; i++)
         small_arraylist_new(&common_heap->free_stacks[i], 0);
     small_arraylist_new(&common_heap->mallocarrays, 0);

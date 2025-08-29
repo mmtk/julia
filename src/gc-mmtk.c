@@ -181,6 +181,7 @@ void jl_init_thread_heap(struct _jl_tls_states_t *ptls) JL_NOTSAFEPOINT {
     jl_thread_heap_common_t *heap = &ptls->gc_tls_common.heap;
     small_arraylist_new(&heap->weak_refs, 0);
     small_arraylist_new(&heap->live_tasks, 0);
+    small_arraylist_new(&heap->all_tasks, 0);
     for (int i = 0; i < JL_N_STACK_POOLS; i++)
         small_arraylist_new(&heap->free_stacks[i], 0);
     small_arraylist_new(&heap->mallocarrays, 0);
@@ -1038,12 +1039,37 @@ JL_DLLEXPORT void jl_gc_mmtk_sweep_stack_pools(void)
         if (jl_atomic_load_relaxed(&ptls2->current_task) == NULL) {
             small_arraylist_free(ptls2->gc_tls_common.heap.free_stacks);
         }
-
-        small_arraylist_t *live_tasks = &ptls2->gc_tls_common.heap.live_tasks;
+        // sweep list of all tasks
+        small_arraylist_t *all_tasks = &ptls2->gc_tls_common.heap.all_tasks;
         size_t n = 0;
         size_t ndel = 0;
-        size_t l = live_tasks->len;
-        void **lst = live_tasks->items;
+        size_t l = all_tasks->len;
+        void **lst = all_tasks->items;
+        if (l != 0) {
+            while (1) {
+                jl_task_t *t = (jl_task_t*)lst[n];
+                assert(jl_is_task(t));
+                if (mmtk_is_live_object(t)) {
+                    // tasks should be non moving
+                    assert(mmtk_get_possibly_forwarded(t) == t);
+                    n++;
+                } else {
+                    ndel++;
+                }
+                if (n >= l - ndel)
+                    break;
+                void *tmp = lst[n];
+                lst[n] = lst[n + ndel];
+                lst[n + ndel] = tmp;
+            }
+            all_tasks->len -= ndel;
+        }
+
+        small_arraylist_t *live_tasks = &ptls2->gc_tls_common.heap.live_tasks;
+        n = 0;
+        ndel = 0;
+        l = live_tasks->len;
+        lst = live_tasks->items;
         if (l == 0)
             continue;
         while (1) {
