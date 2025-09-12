@@ -1260,6 +1260,10 @@ Base.cconvert(::Type{Ptr{T}}, S::Strider{T}) where {T} = memoryref(S.data.ref, S
 
 @testset "Simple 3d strided views and permutes" for sz in ((5, 3, 2), (7, 11, 13))
     A = collect(reshape(1:prod(sz), sz))
+    # The following test takes pointers from A, we need to ensure A is not moved by GC.
+    # Furthermore, as pointer() returns the buffer address, we need to ensure the underlying buffer. We use tpin.
+    # If we take address from any newly allocation array in this test, it needs to be tpinned.
+    Base.increment_tpin_count!(A)
     S = Strider(vec(A), strides(A), sz)
     @test pointer(A) == pointer(S)
     for i in 1:prod(sz)
@@ -1272,6 +1276,7 @@ Base.cconvert(::Type{Ptr{T}}, S::Strider{T}) where {T} = memoryref(S.data.ref, S
                  (sz[1]:-1:1, sz[2]:-1:1, sz[3]:-1:1),
                  (sz[1]-1:-3:1, sz[2]:-2:3, 1:sz[3]),)
         Ai = A[idxs...]
+        Base.increment_tpin_count!(Ai)
         Av = view(A, idxs...)
         Sv = view(S, idxs...)
         Ss = Strider{Int, 3}(vec(A), sum((first.(idxs).-1).*strides(A))+1, strides(Av), length.(idxs))
@@ -1282,6 +1287,7 @@ Base.cconvert(::Type{Ptr{T}}, S::Strider{T}) where {T} = memoryref(S.data.ref, S
         end
         for perm in ((3, 2, 1), (2, 1, 3), (3, 1, 2))
             P = permutedims(A, perm)
+            Base.increment_tpin_count!(P)
             Ap = Base.PermutedDimsArray(A, perm)
             Sp = Base.PermutedDimsArray(S, perm)
             Ps = Strider{Int, 3}(vec(A), 1, strides(A)[collect(perm)], sz[collect(perm)])
@@ -1303,7 +1309,9 @@ Base.cconvert(::Type{Ptr{T}}, S::Strider{T}) where {T} = memoryref(S.data.ref, S
                 @test Pi[i] == Pv[i] == Apv[i] == Spv[i] == Pvs[i]
             end
             Vp = permutedims(Av, perm)
+            Base.increment_tpin_count!(Vp)
             Ip = permutedims(Ai, perm)
+            Base.increment_tpin_count!(Ip)
             Avp = Base.PermutedDimsArray(Av, perm)
             Svp = Base.PermutedDimsArray(Sv, perm)
             @test pointer(Avp) == pointer(Svp)
@@ -1322,6 +1330,10 @@ end
 
 @testset "simple 2d strided views, permutes, transposes" for sz in ((5, 3), (7, 11))
     A = collect(reshape(1:prod(sz), sz))
+    # The following test takes pointers from A, we need to ensure A is not moved by GC.
+    # Furthermore, as pointer() returns the buffer address, we need to ensure the underlying buffer. We use tpin.
+    # If we take address from any newly allocation array in this test, it needs to be tpinned.
+    Base.increment_tpin_count!(A)
     S = Strider(vec(A), strides(A), sz)
     @test pointer(A) == pointer(S)
     for i in 1:prod(sz)
@@ -1343,6 +1355,7 @@ end
         end
         perm = (2, 1)
         P = permutedims(A, perm)
+        Base.increment_tpin_count!(P)
         Ap = Base.PermutedDimsArray(A, perm)
         At = transpose(A)
         Aa = adjoint(A)
@@ -1372,6 +1385,7 @@ end
             @test Pv[i] == Apv[i] == Spv[i] == Pvs[i] == Atv[i] == Ata[i] == Stv[i] == Sta[i]
         end
         Vp = permutedims(Av, perm)
+        Base.increment_tpin_count!(Vp)
         Avp = Base.PermutedDimsArray(Av, perm)
         Avt = transpose(Av)
         Ava = adjoint(Av)
@@ -1915,6 +1929,7 @@ module IRUtils
 end
 
 function check_pointer_strides(A::AbstractArray)
+    Base.increment_tpin_count!(A)
     # Make sure stride(A, i) is equivalent with strides(A)[i] (if 1 <= i <= ndims(A))
     dims = ntuple(identity, ndims(A))
     map(i -> stride(A, i), dims) == @inferred(strides(A)) || return false
@@ -1924,6 +1939,7 @@ function check_pointer_strides(A::AbstractArray)
     for i in eachindex(IndexLinear(), A)
         A[i] === Base.unsafe_load(pointer(A, i)) || return false
     end
+    Base.decrement_tpin_count!(A)
     return true
 end
 

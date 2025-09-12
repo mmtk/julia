@@ -773,7 +773,10 @@ end
     @test_throws ArgumentError PermutedDimsArray(a, (1,1,1))
     @test_throws ArgumentError PermutedDimsArray(s, (1,1,1))
     cp = PermutedDimsArray(c, (3,2,1))
+    # The following test takes pointers from c, we need to ensure c is not moved by GC.
+    Base.increment_tpin_count!(c)
     @test pointer(cp) == pointer(c)
+    Base.decrement_tpin_count!(c)
     @test_throws ArgumentError pointer(cp, 2)
     @test strides(cp) == (9,3,1)
     ap = PermutedDimsArray(Array(a), (2,1,3))
@@ -3025,14 +3028,19 @@ Base.:(==)(a::T11053, b::T11053) = a.a == b.a
 
 # check a == b for arrays of Union type (#22403)
 let TT = Union{UInt8, Int8}
+    # The following test takes pointers from a and b, we need to pin both
     a = TT[0x0, 0x1]
+    Base.increment_tpin_count!(a)
     b = TT[0x0, 0x0]
+    Base.increment_tpin_count!(b)
     pa = pointer(a)
     pb = pointer(b)
     resize!(a, 1) # sets a[2] = 0
     resize!(b, 1)
     @assert pointer(a) == pa
     @assert pointer(b) == pb
+    Base.decrement_tpin_count!(a)
+    Base.decrement_tpin_count!(b)
     unsafe_store!(Ptr{UInt8}(pa), 0x1, 2) # reset a[2] to 1
     @test length(a) == length(b) == 1
     @test a[1] == b[1] == 0x0
