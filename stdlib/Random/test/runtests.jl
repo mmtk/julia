@@ -250,6 +250,7 @@ let mt = MersenneTwister(0)
     resize!(a, 1000) # could be 8-byte aligned
     b = Vector{Float64}(undef, 1000) # should be 16-byte aligned
     c8 = Vector{UInt64}(undef, 1001)
+    Base.increment_tpin_count!(c8)
     pc8 = pointer(c8)
     if Int(pc8) % 16 == 0
         # Make sure pc8 is not 16-byte aligned since that's what we want to test.
@@ -474,6 +475,7 @@ end
 @testset "rand(Bool) uniform distribution" begin
     for n in [rand(1:8), rand(9:16), rand(17:64)]
         a = zeros(Bool, n)
+        Base.increment_tpin_count!(a)
         a8 = unsafe_wrap(Array, Ptr{UInt8}(pointer(a)), length(a); own=false) # unsafely observe the actual bit patterns in `a`
         as = zeros(Int, n)
         # we will test statistical properties for each position of a,
