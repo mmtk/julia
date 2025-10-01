@@ -145,7 +145,8 @@ void jl_gc_wait_for_the_world(jl_ptls_t* gc_all_tls_states, int gc_n_threads)
             // We're currently also using atomic store release in mutator threads
             // (in jl_gc_state_set), but we may want to use signals to flush the
             // memory operations on those threads lazily instead.
-            while (!jl_atomic_load_relaxed(&ptls2->gc_state) || !jl_atomic_load_acquire(&ptls2->gc_state)) {
+            while (jl_atomic_load(&ptls2->gc_state) == JL_GC_STATE_UNSAFE ||
+                    jl_atomic_load(&ptls2->gc_state) == JL_GC_STATE_SAFE) {
                 // Use system mutexes rather than spin locking to minimize wasted CPU time
                 // while we wait for other threads reach a safepoint.
                 // This is particularly important when run under rr.
