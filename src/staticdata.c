@@ -677,10 +677,12 @@ static jl_value_t *get_replaceable_field(jl_value_t **addr, int mutabl) JL_GC_DI
     if (fld == HT_NOTFOUND) {
         fld = *addr;
         if (mutabl && fld && jl_is_cpointer_type(jl_typeof(fld)) && jl_unbox_voidpointer(fld) != NULL && jl_unbox_voidpointer(fld) != (void*)(uintptr_t)-1) {
-            void **nullval = ptrhash_bp(&nullptrs, (void*)jl_typeof(fld));
+            void **nullval = ptrhash_bp(&nullptrs, (void*)jl_typeof(fld)); // jl_typeof(fld) is nonmoving, no need to pin it
             if (*nullval == HT_NOTFOUND) {
                 void *C_NULL = NULL;
-                *nullval = (void*)jl_new_bits(jl_typeof(fld), &C_NULL);
+                jl_value_t *new_fld = jl_new_bits(jl_typeof(fld), &C_NULL);
+                OBJHASH_PIN(new_fld); // new_fld is stored in htables, pin it.
+                *nullval = (void*)new_fld;
             }
             fld = (jl_value_t*)*nullval;
         }
@@ -691,7 +693,7 @@ static jl_value_t *get_replaceable_field(jl_value_t **addr, int mutabl) JL_GC_DI
 
 static uintptr_t jl_fptr_id(void *fptr)
 {
-    void **pbp = ptrhash_bp(&fptr_to_id, fptr);
+    void **pbp = ptrhash_bp(&fptr_to_id, fptr); // fptr is not a heap object, no need to pin it.
     if (*pbp == HT_NOTFOUND || fptr == NULL)
         return 0;
     else
@@ -960,6 +962,7 @@ static void jl_insert_into_serialization_queue(jl_serializer_state *s, jl_value_
                     if (jl_object_in_image((jl_value_t*)def)) {
                         void **pfound = ptrhash_bp(&s->method_roots_index, def);
                         if (*pfound == HT_NOTFOUND) {
+                            OBJHASH_PIN(def); // def is stored in htables as both key and value, pin it.
                             *pfound = def;
                             size_t nwithkey = nroots_with_key(def, s->worklist_key);
                             if (nwithkey) {
@@ -1087,12 +1090,13 @@ static void jl_insert_into_serialization_queue(jl_serializer_state *s, jl_value_
 done_fields: ;
 
     // We've encountered an item we need to cache
+    OBJHASH_PIN(v); // v is stored in htables as the key, pin it.
     void **bp = ptrhash_bp(&serialization_order, v);
     assert(*bp == (void*)(uintptr_t)-2);
     arraylist_push(&serialization_queue, (void*) v);
     size_t idx = serialization_queue.len - 1;
     assert(serialization_queue.len < ((uintptr_t)1 << RELOC_TAG_OFFSET) && "too many items to serialize");
-    *bp = to_seroder_entry(idx);
+    *bp = to_seroder_entry(idx); // the entry that gets stored is not an object reference, we don't need to pin it for htables.
 
     // DataType is very unusual, in that some of the fields need to be pre-order, and some
     // (notably super) must not be (even if `jl_queue_for_serialization_` would otherwise
@@ -1148,6 +1152,7 @@ static void jl_queue_for_serialization_(jl_serializer_state *s, jl_value_t *v, i
             immediate = 1;
     }
 
+    OBJHASH_PIN(v); // v is stoored as the key in htables, pin it. The value that gets stored later is not an object reference.
     void **bp = ptrhash_bp(&serialization_order, v);
     assert(!immediate || *bp != (void*)(uintptr_t)-2);
     if (*bp == HT_NOTFOUND)
@@ -1181,6 +1186,7 @@ static void jl_serialize_reachable(jl_serializer_state *s) JL_GC_DISABLED
         }
         prevlen = --object_worklist.len;
         jl_value_t *v = (jl_value_t*)object_worklist.items[prevlen];
+        OBJHASH_PIN(v); // v is stoored as the key in htables, pin it. The value that gets stored later is not an object reference.
         void **bp = ptrhash_bp(&serialization_order, (void*)v);
         assert(*bp != HT_NOTFOUND && *bp != (void*)(uintptr_t)-2);
         if (*bp == (void*)(uintptr_t)-1) { // might have been eagerly handled for post-order while in the lazy pre-order queue
@@ -1255,6 +1261,7 @@ static uintptr_t _backref_id(jl_serializer_state *s, jl_value_t *v, jl_array_t *
 {
     assert(v != NULL && "cannot get backref to NULL object");
     if (jl_is_symbol(v)) {
+        OBJHASH_PIN(v); // v is stoored as the key in htables, pin it. The value that gets stored later is not an object reference.
         void **pidx = ptrhash_bp(&symbol_table, v);
         void *idx = *pidx;
         if (idx == HT_NOTFOUND) {

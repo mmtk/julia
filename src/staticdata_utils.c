@@ -189,8 +189,10 @@ static int type_in_worklist(jl_value_t *v, jl_query_cache *cache) JL_NOTSAFEPOIN
     }
 
     // Memoize result
-    if (cache != NULL)
+    if (cache != NULL) {
+        OBJHASH_PIN(v); // v is stored as the key in htables, pin it.
         ptrhash_put(&cache->type_in_worklist, (void*)v, result ? (void*)v : NULL);
+    }
 
     return result;
 }
