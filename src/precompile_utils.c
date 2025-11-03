@@ -418,6 +418,7 @@ static void jl_rebuild_methtables(arraylist_t *MIs, htable_t *mtables) JL_GC_DIS
         jl_method_instance_t *mi = (jl_method_instance_t*)MIs->items[i];
         jl_method_t *m = mi->def.method;
         // Check if the method is already in the new table, if not then insert it there
+        OBJHASH_PIN(m); // m is inserted as the key and the value to the hashtable
         void **inserted = ptrhash_bp(&ms, m);
         if (*inserted != HT_NOTFOUND)
             continue;
