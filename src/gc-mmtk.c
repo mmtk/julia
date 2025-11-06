@@ -894,7 +894,7 @@ JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, Process
                 // GC-managed values inside.
                 size_t njlvals = jl_bt_num_jlvals(bt_entry);
                 while (jlval_index < njlvals) {
-                    jl_value_t** new_obj_slot = &bt_entry[2 + jlval_index].jlvalue;
+                    jl_value_t** new_obj_slot = (jl_value_t**)&bt_entry[2 + jlval_index].jlvalue;
                     jlval_index += 1;
                     process_slot(closure, new_obj_slot);
                 }
@@ -902,7 +902,7 @@ JL_DLLEXPORT void jl_gc_scan_julia_exc_obj(void* obj_raw, void* closure, Process
             }
 
             jl_bt_element_t *stack_raw = (jl_bt_element_t *)(excstack+1);
-            jl_value_t** stack_obj_slot = &stack_raw[itr-1].jlvalue;
+            jl_value_t** stack_obj_slot = (jl_value_t**)&stack_raw[itr-1].jlvalue;
 
             itr = jl_excstack_next(excstack, itr);
             bt_index = 0;
