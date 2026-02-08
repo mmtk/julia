@@ -427,7 +427,7 @@ static void jl_rebuild_methtables(arraylist_t *MIs, htable_t *mtables) JL_GC_DIS
         if ((jl_value_t *)old_mt == jl_nothing)
             continue;
         if (!ptrhash_has(mtables, old_mt)) {
-            jl_methodtable_t *new_mt = jl_new_method_table(old_mt->name, old_mt->module);
+            jl_methtable_t *new_mt = jl_new_method_table(old_mt->name, old_mt->module);
             OBJHASH_PIN(old_mt)
             OBJHASH_PIN(new_mt)
             ptrhash_put(mtables, old_mt, new_mt);

@@ -1546,7 +1546,7 @@ jl_task_t *jl_init_root_task(jl_ptls_t ptls, void *stack_lo, void *stack_hi)
     jl_set_pgcstack(&bootstrap_task.value.gcstack);
     bootstrap_task.value.ptls = ptls;
     if (jl_nothing == NULL) // make a placeholder
-        jl_nothing = jl_gc_permobj(0, jl_nothing_type, 0);
+        jl_nothing = jl_gc_permobj(0, jl_nothing_type);
     jl_task_t *ct = (jl_task_t*)jl_gc_alloc_nonmoving(ptls, sizeof(jl_task_t), jl_task_type);
     // store task in all tasks
     mtarraylist_push(&ptls->gc_tls_common.heap.all_tasks, ct);

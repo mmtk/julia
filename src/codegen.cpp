@@ -4646,8 +4646,8 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
     else if (f == BUILTIN(_svec_len) && nargs == 1) {
         const jl_cgval_t &obj = argv[1];
         Value *len;
-        if (obj.constant && jl_is_svec(obj.constant)) {
-            len = ConstantInt::get(ctx.types().T_size, jl_svec_len(obj.constant));
+        if (obj.constant && jl_is_svec(jl_pinned_ref_get(obj.constant))) {
+            len = ConstantInt::get(ctx.types().T_size, jl_svec_len(jl_pinned_ref_get(obj.constant)));
         }
         else {
             Value *svec_val = decay_derived(ctx, boxed(ctx, obj));
@@ -5384,19 +5384,19 @@ static jl_cgval_t emit_invoke_modify(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_
         if (f.constant == BUILTIN(modifyfield)) {
             if (emit_f_opfield(ctx, &ret, BUILTIN(modifyfield), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (f.constant == BUILTIN(modifyglobal)) {
             if (emit_f_opglobal(ctx, &ret, BUILTIN(modifyglobal), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (f.constant == BUILTIN(memoryrefmodify)) {
             if (emit_f_opmemory(ctx, &ret, BUILTIN(memoryrefmodify), argv, nargs - 1, &lival))
                 return ret;
-            it = builtin_func_map().find(f.constant);
+            it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
             assert(it != builtin_func_map().end());
         }
         else if (jl_typetagis(jl_pinned_ref_get(f.constant), jl_intrinsic_type)) {
@@ -5477,12 +5477,12 @@ static jl_cgval_t emit_call(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_t *rt, bo
         setName(ctx.emission_context, ret, "Builtin_ret");
         return mark_julia_type(ctx, ret, true, rt);
     }
-    else if (f.constant && jl_isa(f.constant, (jl_value_t*)jl_builtin_type)) {
+    else if (f.constant && jl_isa(jl_pinned_ref_get(f.constant), (jl_value_t*)jl_builtin_type)) {
         jl_cgval_t result;
-        bool handled = emit_builtin_call(ctx, &result, f.constant, argv, nargs - 1, rt, ex, is_promotable);
+        bool handled = emit_builtin_call(ctx, &result, jl_pinned_ref_get(f.constant), argv, nargs - 1, rt, ex, is_promotable);
         if (handled)
             return result;
-        auto it = builtin_func_map().find(f.constant);
+        auto it = builtin_func_map().find(jl_pinned_ref_get(f.constant));
         if (it != builtin_func_map().end()) {
             Value *ret = emit_jlcall(ctx, it->second, Constant::getNullValue(ctx.types().T_prjlvalue), ArrayRef<jl_cgval_t>(argv).drop_front(), nargs - 1, julia_call);
             setName(ctx.emission_context, ret, it->second->name + "_ret");

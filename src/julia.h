@@ -1494,16 +1494,16 @@ STATIC_INLINE jl_value_t *jl_genericmemory_owner(jl_genericmemory_t *m JL_PROPAG
 
 // write barriers
 
-#ifndef WITH_THIRD_PARTY_HEAP
-#include "gc-wb-stock.h"
-#else
-// Pick the appropriate third-party implementation
-#ifdef WITH_THIRD_PARTY_HEAP
-#if WITH_THIRD_PARTY_HEAP == 1 // MMTk
-#include "gc-wb-mmtk.h"
-#endif
-#endif
-#endif
+// #ifndef WITH_THIRD_PARTY_HEAP
+// #include "gc-wb-stock.h"
+// #else
+// // Pick the appropriate third-party implementation
+// #ifdef WITH_THIRD_PARTY_HEAP
+// #if WITH_THIRD_PARTY_HEAP == 1 // MMTk
+// #include "gc-wb-mmtk.h"
+// #endif
+// #endif
+// #endif
 
 /*
   how - allocation style
