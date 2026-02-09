@@ -132,7 +132,7 @@ JL_DLLEXPORT void jl_push_newly_inferred(jl_value_t* ci)
 }
 
 
-static jl_array_t *inference_entrance_backtraces JL_GLOBALLY_ROOTED /*FIXME*/ = NULL;
+jl_array_t *inference_entrance_backtraces JL_GLOBALLY_ROOTED /*FIXME*/ = NULL;
 // Mutex for inference_entrance_backtraces
 jl_mutex_t inference_entrance_backtraces_mutex;
 

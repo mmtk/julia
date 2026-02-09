@@ -19,6 +19,7 @@ extern const unsigned pool_sizes[];
 extern jl_mutex_t finalizers_lock;
 extern jl_task_t *wait_empty JL_GLOBALLY_ROOTED;
 extern _Atomic(jl_function_t*) init_task_lock_func JL_GLOBALLY_ROOTED;
+extern jl_array_t *inference_entrance_backtraces JL_GLOBALLY_ROOTED;
 
 // FIXME: Should the values below be shared between both GC's?
 // Note that MMTk uses a hard max heap limit, which is set by default
@@ -546,9 +547,10 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
         TRACE_GLOBALLY_ROOTED(call_cache[i]);
     }
     // julia_internal.h
-    TRACE_GLOBALLY_ROOTED(jl_type_type_mt);
-    TRACE_GLOBALLY_ROOTED(jl_nonfunction_mt);
-    TRACE_GLOBALLY_ROOTED(jl_kwcall_mt);
+    // TRACE_GLOBALLY_ROOTED(jl_type_type_mt);
+    // TRACE_GLOBALLY_ROOTED(jl_nonfunction_mt);
+    // TRACE_GLOBALLY_ROOTED(jl_kwcall_mt);
+    TRACE_GLOBALLY_ROOTED(jl_method_table);
     TRACE_GLOBALLY_ROOTED(jl_opaque_closure_method);
     TRACE_GLOBALLY_ROOTED(jl_nulldebuginfo);
     TRACE_GLOBALLY_ROOTED(_jl_debug_method_invalidation);
@@ -707,16 +709,18 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     TRACE_GLOBALLY_ROOTED(jl_quotenode_type);
     TRACE_GLOBALLY_ROOTED(jl_newvarnode_type);
     TRACE_GLOBALLY_ROOTED(jl_intrinsic_type);
+    TRACE_GLOBALLY_ROOTED(jl_methcache_type);
     TRACE_GLOBALLY_ROOTED(jl_methtable_type);
     TRACE_GLOBALLY_ROOTED(jl_typemap_level_type);
     TRACE_GLOBALLY_ROOTED(jl_typemap_entry_type);
+    TRACE_GLOBALLY_ROOTED(jl_kwcall_type);
 
     TRACE_GLOBALLY_ROOTED(jl_emptysvec);
     TRACE_GLOBALLY_ROOTED(jl_emptytuple);
     TRACE_GLOBALLY_ROOTED(jl_true);
     TRACE_GLOBALLY_ROOTED(jl_false);
     TRACE_GLOBALLY_ROOTED(jl_nothing);
-    TRACE_GLOBALLY_ROOTED(jl_kwcall_func);
+    // TRACE_GLOBALLY_ROOTED(jl_kwcall_func);
 
     TRACE_GLOBALLY_ROOTED(jl_libdl_dlopen_func);
 
@@ -729,6 +733,7 @@ void trace_full_globally_rooted(RootsWorkClosure* closure, RootsWorkBuffer* buf,
     // staticdata_utils.c
     TRACE_GLOBALLY_ROOTED(internal_methods);
     TRACE_GLOBALLY_ROOTED(newly_inferred);
+    TRACE_GLOBALLY_ROOTED(inference_entrance_backtraces);
     // task.c
     TRACE_GLOBALLY_ROOTED(task_done_hook_func);
     // threading.c
@@ -1467,11 +1472,13 @@ void *jl_gc_perm_alloc(size_t sz, int zero, unsigned align, unsigned offset)
     return jl_gc_perm_alloc_nolock(sz, zero, align, offset);
 }
 
-jl_value_t *jl_gc_permobj(size_t sz, void *ty) JL_NOTSAFEPOINT
+jl_value_t *jl_gc_permobj(size_t sz, void *ty, unsigned align) JL_NOTSAFEPOINT
 {
     const size_t allocsz = sz + sizeof(jl_taggedvalue_t);
-    unsigned align = (sz == 0 ? sizeof(void*) : (allocsz <= sizeof(void*) * 2 ?
+    if (align == 0) {
+        align = ((sz == 0) ? sizeof(void*) : (allocsz <= sizeof(void*) * 2 ?
                                                  sizeof(void*) * 2 : 16));
+    }
     jl_taggedvalue_t *o = (jl_taggedvalue_t*)jl_gc_perm_alloc(allocsz, 0, align,
                                                               sizeof(void*) % align);
 

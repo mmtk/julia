@@ -1181,7 +1181,7 @@ struct _jl_gcframe_t {
 
 #define jl_pgcstack (jl_current_task->gcstack)
 
-#ifndef WITH_THIRD_PARTY_HEAP
+#ifndef MMTK_GC
 #define JL_GC_ENCODE_PUSHARGS(n)   (((size_t)(n))<<2)
 #define JL_GC_ENCODE_PUSH(n)       ((((size_t)(n))<<2)|1)
 #define JL_GC_DECODE_NROOTS(n)     (n >> 2)
@@ -1190,7 +1190,6 @@ struct _jl_gcframe_t {
 #define JL_GC_ENCODE_PUSH_NO_TPIN(n)      JL_GC_ENCODE_PUSH(n)
 
 #else
-#if WITH_THIRD_PARTY_HEAP == 1 // MMTk
 // We use an extra bit (100) in the nroots value from the frame to indicate that the roots
 // in the frame are/are not transitively pinning.
 // There are currently 3 macros that encode passing nroots to the gcframe
@@ -1222,7 +1221,6 @@ struct _jl_gcframe_t {
 
 #define JL_GC_ENCODE_PUSHARGS_TPIN(n)      (((size_t)(n))<<3)
 
-#endif
 #endif
 
 #ifdef __clang_gcanalyzer__
