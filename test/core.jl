@@ -23,7 +23,7 @@ for (T, c) in (
         (Core.MethodCache, []),
         (Core.TypeMapEntry, [:sig, :simplesig, :guardsigs, :func, :isleafsig, :issimplesig, :va]),
         (Core.TypeMapLevel, []),
-        (Core.TypeName, [:name, :module, :names, :wrapper, :hash, :n_uninitialized, :flags]),
+        (Core.TypeName, [:hiddenptrfields, :name, :module, :names, :wrapper, :hash, :n_uninitialized, :flags]),
         (DataType, [:name, :super, :parameters, :instance, :hash]),
         (TypeVar, [:name, :ub, :lb]),
         (Core.Memory, [:length, :ptr]),
