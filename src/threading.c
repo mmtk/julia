@@ -317,7 +317,7 @@ JL_DLLEXPORT void jl_set_ptls_rng(uint64_t new_seed) JL_NOTSAFEPOINT
     jl_current_task->ptls->rngseed = new_seed;
 }
 
-jl_ptls_t jl_init_threadtls(int16_t tid)
+jl_ptls_t jl_init_threadtls(int16_t tid, int gc_disable)
 {
 #ifndef _OS_WINDOWS_
     if (pthread_getspecific(jl_task_exit_key))
@@ -341,8 +341,9 @@ jl_ptls_t jl_init_threadtls(int16_t tid)
 #endif
     ptls->system_id = uv_thread_self();
     ptls->rngseed = jl_rand();
-    if (tid == 0)
+    if (gc_disable) {
         ptls->disable_gc = 1;
+    }
 #ifdef _OS_WINDOWS_
     if (tid == 0) {
         if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
@@ -433,14 +434,14 @@ JL_DLLEXPORT jl_gcframe_t **jl_adopt_thread(void)
 {
     // `jl_init_threadtls` puts us in a GC unsafe region, so ensure GC isn't running.
     // we can't use a normal safepoint because we don't have signal handlers yet.
-    jl_atomic_fetch_add(&jl_gc_disable_counter, 1);
+    jl_gc_disable_no_ptls_no_safepoint();
     // pass NULL as a special token to indicate we are running on an unmanaged task
     jl_safepoint_wait_gc(NULL);
     // this check is coupled with the one in `jl_safepoint_wait_gc`, where we observe if a
     // foreign thread has asked to disable the GC, guaranteeing the order of events.
 
     // initialize this thread (assign tid, create heap, set up root task)
-    jl_ptls_t ptls = jl_init_threadtls(-1);
+    jl_ptls_t ptls = jl_init_threadtls(-1, 1);
     void *stack_lo, *stack_hi;
     jl_init_stack_limits(0, &stack_lo, &stack_hi);
 
@@ -448,7 +449,7 @@ JL_DLLEXPORT jl_gcframe_t **jl_adopt_thread(void)
     jl_task_t *ct = jl_init_root_task(ptls, stack_lo, stack_hi); // assumes the GC is disabled
     JL_GC_PROMISE_ROOTED(ct);
     uv_random(NULL, NULL, &ct->rngState, sizeof(ct->rngState), 0, NULL);
-    jl_atomic_fetch_add(&jl_gc_disable_counter, -1);
+    jl_gc_enable(1);
     jl_init_task_lock(ct);
     return &ct->gcstack;
 }

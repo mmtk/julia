@@ -104,7 +104,7 @@ void jl_threadfun(void *arg)
     jl_threadarg_t *targ = (jl_threadarg_t*)arg;
 
     // initialize this thread (set tid, create heap, set up root task)
-    jl_ptls_t ptls = jl_init_threadtls(targ->tid);
+    jl_ptls_t ptls = jl_init_threadtls(targ->tid, 0);
     void *stack_lo, *stack_hi;
     jl_init_stack_limits(0, &stack_lo, &stack_hi);
     // warning: this changes `jl_current_task`, so be careful not to call that from this function

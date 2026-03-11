@@ -90,6 +90,8 @@ typedef enum {
 // Enables or disables (depending on the value of the argument) the collector. Returns
 // whether GC was previously enabled.
 JL_DLLEXPORT int jl_gc_enable(int on);
+// Disable collection without entering a safepoint.
+JL_DLLEXPORT void jl_gc_disable_no_ptls_no_safepoint(void);
 // Returns whether the collector is enabled.
 JL_DLLEXPORT int jl_gc_is_enabled(void);
 // Sets a soft limit to Julia's heap.

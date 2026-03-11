@@ -1257,7 +1257,6 @@ STATIC_INLINE int jl_addr_is_safepoint(uintptr_t addr)
     return addr >= safepoint_addr && addr < safepoint_addr + jl_page_size * 4;
 }
 extern _Atomic(uint32_t) jl_gc_running;
-extern _Atomic(uint32_t) jl_gc_disable_counter;
 // All the functions are safe to be called from within a signal handler
 // provided that the thread will not be interrupted by another asynchronous
 // signal.

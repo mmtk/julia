@@ -776,7 +776,7 @@ JL_DLLEXPORT void jl_init_(jl_image_buf_t sysimage)
     arraylist_push(&eytzinger_idxs, (void*)0);
     arraylist_push(&eytzinger_image_tree, (void*)1); // outside image
 
-    jl_ptls_t ptls = jl_init_threadtls(0);
+    jl_ptls_t ptls = jl_init_threadtls(0, 1);
 #pragma GCC diagnostic push
 #if defined(_COMPILER_GCC_) && __GNUC__ >= 12
 #pragma GCC diagnostic ignored "-Wdangling-pointer"

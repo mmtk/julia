@@ -3456,6 +3456,35 @@ static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
 extern int jl_heartbeat_pause(void);
 extern int jl_heartbeat_resume(void);
 
+// collector entry point and control
+_Atomic(uint32_t) jl_gc_disable_counter = 1;
+
+JL_DLLEXPORT void jl_gc_disable_no_ptls_no_safepoint(void)
+{
+    jl_atomic_fetch_add(&jl_gc_disable_counter, 1);
+}
+
+JL_DLLEXPORT int jl_gc_enable(int on)
+{
+    jl_ptls_t ptls = jl_current_task->ptls;
+    int prev = !ptls->disable_gc;
+    ptls->disable_gc = (on == 0);
+    if (on && !prev) {
+        // disable -> enable
+        if (jl_atomic_fetch_add(&jl_gc_disable_counter, -1) == 1) {
+            gc_num.allocd += gc_num.deferred_alloc;
+            gc_num.deferred_alloc = 0;
+        }
+    }
+    else if (prev && !on) {
+        // enable -> disable
+        jl_atomic_fetch_add(&jl_gc_disable_counter, 1);
+        // check if the GC is running and wait for it to finish
+        jl_gc_safepoint_(ptls);
+    }
+    return prev;
+}
+
 JL_DLLEXPORT void jl_gc_collect(jl_gc_collection_t collection)
 {
     JL_PROBE_GC_BEGIN(collection);
@@ -3679,7 +3708,7 @@ void jl_parallel_gc_threadfun(void *arg)
     jl_threadarg_t *targ = (jl_threadarg_t*)arg;
 
     // initialize this thread (set tid and create heap)
-    jl_ptls_t ptls = jl_init_threadtls(targ->tid);
+    jl_ptls_t ptls = jl_init_threadtls(targ->tid, 0);
     void *stack_lo, *stack_hi;
     jl_init_stack_limits(0, &stack_lo, &stack_hi);
     // warning: this changes `jl_current_task`, so be careful not to call that from this function
@@ -3720,7 +3749,7 @@ void jl_concurrent_gc_threadfun(void *arg)
     jl_threadarg_t *targ = (jl_threadarg_t*)arg;
 
     // initialize this thread (set tid and create heap)
-    jl_ptls_t ptls = jl_init_threadtls(targ->tid);
+    jl_ptls_t ptls = jl_init_threadtls(targ->tid, 0);
     void *stack_lo, *stack_hi;
     jl_init_stack_limits(0, &stack_lo, &stack_hi);
     // warning: this changes `jl_current_task`, so be careful not to call that from this function
