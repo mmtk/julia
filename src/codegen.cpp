@@ -2170,9 +2170,11 @@ static AllocaInst *emit_static_alloca(jl_codectx_t &ctx, unsigned nb, Align alig
     // if it cannot find something better to do, which is terrible for performance.
     // However, if we emit this with an element size equal to the alignment, it will instead split it into aligned chunks
     // which is great for performance and vectorization.
-    if (alignTo(nb, align) == align.value()) // don't bother with making an array of length 1
-        return emit_static_alloca(ctx, ctx.builder.getIntNTy(align.value() * 8), align);
-    return emit_static_alloca(ctx, ArrayType::get(ctx.builder.getIntNTy(align.value() * 8), alignTo(nb, align) / align.value()), align);
+    // Cap element size at 64 bits since not all backends support larger integers.
+    unsigned elsize = std::min(align.value(), (uint64_t)8);
+    if (alignTo(nb, elsize) == elsize) // don't bother with making an array of length 1
+        return emit_static_alloca(ctx, ctx.builder.getIntNTy(elsize * 8), align);
+    return emit_static_alloca(ctx, ArrayType::get(ctx.builder.getIntNTy(elsize * 8), alignTo(nb, elsize) / elsize), align);
 }
 
 static AllocaInst *emit_static_roots(jl_codectx_t &ctx, unsigned nroots)
@@ -2312,6 +2314,19 @@ static inline jl_cgval_t value_to_pointer(jl_codectx_t &ctx, const jl_cgval_t &v
         Align align(julia_alignment(jl_pinned_ref_get(v.typ)));
         Type *ty = julia_type_to_llvm(ctx, jl_pinned_ref_get(v.typ));
         AllocaInst *loc = emit_static_alloca(ctx, ty, align);
+        jl_datatype_t *dt = (jl_datatype_t *)v.typ;
+        size_t npointers = dt->layout->first_ptr >= 0 ? dt->layout->npointers : 0;
+        if (npointers > 0) {
+            auto InsertPoint = ctx.builder.saveIP();
+            ctx.builder.SetInsertPoint(ctx.topalloca->getParent(), ++ctx.topalloca->getIterator());
+            for (size_t i = 0; i < npointers; i++) {
+                // make sure these are nullptr early from LLVM's perspective, in case it decides to SROA it
+                Value *ptr_field = emit_ptrgep(ctx, loc, jl_ptr_offset(dt, i) * sizeof(void *));
+                ctx.builder.CreateAlignedStore(
+                    Constant::getNullValue(ctx.types().T_prjlvalue), ptr_field, Align(sizeof(void *)));
+            }
+            ctx.builder.restoreIP(InsertPoint);
+        }
         auto tbaa = v.V == nullptr ? ctx.tbaa().tbaa_gcframe : ctx.tbaa().tbaa_stack;
         auto stack_ai = jl_aliasinfo_t::fromTBAA(ctx, tbaa);
         recombine_value(ctx, v, loc, stack_ai, align, false);
@@ -5014,7 +5029,11 @@ static jl_cgval_t emit_call_specfun_other(jl_codectx_t &ctx, bool is_opaque_clos
     AllocaInst *result = nullptr;
 
     if (returninfo.cc == jl_returninfo_t::SRet || returninfo.cc == jl_returninfo_t::Union) {
-        result = emit_static_alloca(ctx, returninfo.union_bytes, Align(returninfo.union_align));
+        if (returninfo.all_roots) {
+            result = emit_static_roots(ctx, returninfo.union_bytes / sizeof(void *));
+        } else {
+            result = emit_static_alloca(ctx, returninfo.union_bytes, Align(returninfo.union_align));
+        }
         setName(ctx.emission_context, result, "sret_box");
         argvals[idx] = result;
         idx++;
@@ -7866,7 +7885,7 @@ static jl_returninfo_t get_specsig_function(jl_codegen_params_t &params, Module 
     }
     else if (!deserves_retbox(jlrettype)) {
         bool retboxed;
-        rt = _julia_type_to_llvm(&params, M->getContext(), jlrettype, &retboxed);
+        rt = _julia_type_to_llvm(&params, M->getContext(), jlrettype, &retboxed, /*noboxing*/false);
         assert(!retboxed);
         if (rt != getVoidTy(M->getContext()) && deserves_sret(jlrettype, rt)) {
             auto tracked = CountTrackedPointers(rt, true);
@@ -7878,6 +7897,7 @@ static jl_returninfo_t get_specsig_function(jl_codegen_params_t &params, Module 
             props.cc = jl_returninfo_t::SRet;
             props.union_bytes = jl_datatype_size(jlrettype);
             props.union_align = props.union_minalign = julia_alignment(jlrettype);
+            props.all_roots = tracked.all;
             // sret is always passed from alloca
             assert(M);
             fsig.push_back(rt->getPointerTo(M->getDataLayout().getAllocaAddrSpace()));
@@ -7942,7 +7962,7 @@ static jl_returninfo_t get_specsig_function(jl_codegen_params_t &params, Module 
             if (is_uniquerep_Type(jt))
                 continue;
             isboxed = deserves_argbox(jt);
-            et = isboxed ? T_prjlvalue : _julia_type_to_llvm(&params, M->getContext(), jt, nullptr);
+            et = isboxed ? T_prjlvalue : _julia_type_to_llvm(&params, M->getContext(), jt, nullptr, /*noboxing*/false);
             if (type_is_ghost(et))
                 continue;
         }
