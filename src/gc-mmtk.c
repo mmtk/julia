@@ -62,8 +62,8 @@ extern bool mmtk_is_live_object(void* obj);
 extern bool mmtk_is_object_pinned(void* obj);
 extern unsigned char mmtk_pin_pointer(void* ptr);
 extern bool mmtk_is_pointer_pinned(void* ptr);
-extern const void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
-extern const void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
+extern void* MMTK_SIDE_LOG_BIT_BASE_ADDRESS;
+extern void* MMTK_SIDE_VO_BIT_BASE_ADDRESS;
 
 // ========================================================================= //
 // GC Initialization and Control

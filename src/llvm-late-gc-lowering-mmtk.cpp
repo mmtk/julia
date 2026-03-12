@@ -89,9 +89,16 @@ Value* LateLowerGCFrame::lowerGCAllocBytesLate(CallInst *target, Function &F)
                 if (MMTK_NEEDS_VO_BIT) {
                     auto intptr_ty = Type::getInt64Ty(target->getContext());
                     auto i8_ty = Type::getInt8Ty(F.getContext());
-                    intptr_t metadata_base_address = reinterpret_cast<intptr_t>(MMTK_SIDE_VO_BIT_BASE_ADDRESS);
-                    auto metadata_base_val = ConstantInt::get(intptr_ty, metadata_base_address);
-                    auto metadata_base_ptr = ConstantExpr::getIntToPtr(metadata_base_val, PointerType::get(i8_ty, 0));
+                    auto i8_ptr_ty = PointerType::get(i8_ty, 0);
+
+                    F.getParent()->getOrInsertGlobal("MMTK_SIDE_VO_BIT_BASE_ADDRESS", i8_ptr_ty);
+                    auto metadata_base_global = F.getParent()->getNamedGlobal("MMTK_SIDE_VO_BIT_BASE_ADDRESS");
+                    assert(metadata_base_global != nullptr);
+                    auto metadata_base_ptr = builder.CreateAlignedLoad(
+                        i8_ptr_ty,
+                        metadata_base_global,
+                        Align(sizeof(void *)),
+                        "mmtk_side_vo_bit_base");
                     // intptr_t addr = (intptr_t) v;
                     auto addr = v_raw;
                     // uint8_t* vo_meta_addr = (uint8_t*) (MMTK_SIDE_VO_BIT_BASE_ADDRESS) + (addr >> 6);
