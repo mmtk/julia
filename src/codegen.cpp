@@ -2314,7 +2314,7 @@ static inline jl_cgval_t value_to_pointer(jl_codectx_t &ctx, const jl_cgval_t &v
         Align align(julia_alignment(jl_pinned_ref_get(v.typ)));
         Type *ty = julia_type_to_llvm(ctx, jl_pinned_ref_get(v.typ));
         AllocaInst *loc = emit_static_alloca(ctx, ty, align);
-        jl_datatype_t *dt = (jl_datatype_t *)v.typ;
+        jl_datatype_t *dt = (jl_datatype_t *)jl_pinned_ref_get(v.typ);
         size_t npointers = dt->layout->first_ptr >= 0 ? dt->layout->npointers : 0;
         if (npointers > 0) {
             auto InsertPoint = ctx.builder.saveIP();
